@@ -1,0 +1,38 @@
+# Core runtime
+python-dotenv==1.0.1
+requests==2.34.2
+jsonlines==4.0.0
+jsonref==1.1.0
+tenacity==9.1.4
+
+# Data and file formats
+numpy==2.3.2
+pandas==2.3.3
+pyarrow==22.0.0
+
+# Model clients
+openai==2.33.0
+google-genai==1.73.1
+
+# Local model server
+fastapi==0.115.12
+uvicorn==0.34.2
+pydantic==2.13.4
+torch==2.10.0
+transformers==4.55.1
+accelerate==1.13.0
+huggingface_hub==0.34.4
+safetensors==0.6.2
+json-repair==0.59.5
+sentencepiece>=0.2.0
+
+# Retrieval / evaluation
+llama-index==0.14.22
+llama-index-llms-gemini==0.6.2
+llama-index-embeddings-gemini==0.4.2
+ragas==0.4.3
+scipy==1.16.1
+
+# GraphRAG
+graphrag==3.0.9
+graphrag-storage==3.0.9

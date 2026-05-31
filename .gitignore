@@ -1,0 +1,36 @@
+# Environment and local tooling
+.env
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+
+# Downloaded datasets and generated corpora
+data/raw/
+data/hybridqa/original/
+data/hybridqa/samples/
+data/hybridqa/parsed/
+data/compliance/
+*.zip
+
+# Generated experiment state
+cache/
+results/
+local_models/
+graphrag_workspace/
+
+# Temporary logs and notebooks
+*.log
