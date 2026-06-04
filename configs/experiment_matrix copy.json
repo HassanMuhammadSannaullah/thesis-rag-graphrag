@@ -8,14 +8,14 @@
     "env": {
       "EVALUATION_FRAMEWORK": "classic",
       "MODEL_BACKEND": "local_openai",
-      "LOCAL_GENERATION_MODEL": "gemma4:latest",
-      "LOCAL_GRAPHRAG_INDEX_MODEL": "gemma4:latest",
+      "LOCAL_GENERATION_MODEL": "mistral:7b-instruct",
+      "LOCAL_GRAPHRAG_INDEX_MODEL": "mistral:7b-instruct",
       "LOCAL_EMBEDDING_MODEL": "jeffh/intfloat-e5-base-v2:q8_0"
     }
   },
   "experiments": [
     {
-      "id": "hybridqa_50_questions_gemma4_intfloat_full",
+      "id": "hybridqa_50_questions_mistral7b_e5base_full",
       "enabled": false,
       "script": "scripts/11_run_hybridqa_proper_compare.py",
       "args": {
@@ -25,14 +25,14 @@
         "graphrag-query-method": "local",
         "baseline-top-k": 8,
         "baseline-max-context-chars": 16000,
-        "baseline-max-answer-tokens": 1024,
+        "baseline-max-answer-tokens": 128,
         "force-query": false,
         "force-reindex": false
       },
-      "notes": "Full 50-question HybridQA comparison using local gemma4:latest for both baseline RAG answering and GraphRAG indexing/querying."
+      "notes": "Full 50-question HybridQA comparison using local Mistral 7B for both baseline RAG answering and GraphRAG indexing/querying."
     },
     {
-      "id": "hybridqa_20_questions_gemma4_intfloat_tuned",
+      "id": "hybridqa_20_questions_mistral7b_e5base_tuned",
       "enabled": true,
       "script": "scripts/11_run_hybridqa_proper_compare.py",
       "args": {
@@ -42,7 +42,7 @@
         "graphrag-query-method": "local",
         "baseline-top-k": 8,
         "baseline-max-context-chars": 16000,
-        "baseline-max-answer-tokens": 1024,
+        "baseline-max-answer-tokens": 128,
         "force-query": true,
         "force-reindex": true
       },

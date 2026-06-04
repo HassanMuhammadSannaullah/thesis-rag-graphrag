@@ -145,6 +145,7 @@ def build_ragas_llm(runtime: RagasRuntime, *, generation_model: str) -> Any:
         client = AsyncOpenAI(
             api_key=cfg.LOCAL_LLM_API_KEY,
             base_url=cfg.LOCAL_LLM_BASE_URL,
+            timeout=60.0,
         )
         return runtime.llm_factory(generation_model, client=client)
 
@@ -180,6 +181,7 @@ def build_ragas_embeddings(runtime: RagasRuntime, *, embedding_model: str) -> An
         client = AsyncOpenAI(
             api_key=cfg.LOCAL_LLM_API_KEY,
             base_url=cfg.LOCAL_LLM_BASE_URL,
+            timeout=60.0,
         )
         embeddings = runtime.embedding_factory("openai", model=embedding_model, client=client)
     else:

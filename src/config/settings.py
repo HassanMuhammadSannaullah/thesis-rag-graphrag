@@ -75,6 +75,8 @@ MAX_LINKED_PASSAGES = int(os.getenv("MAX_LINKED_PASSAGES", "3"))
 TOP_K_RETRIEVAL = int(os.getenv("TOP_K_RETRIEVAL", "5"))
 FAIR_BASELINE_MAX_CONTEXT_CHARS = int(os.getenv("FAIR_BASELINE_MAX_CONTEXT_CHARS", "16000"))
 FAIR_BASELINE_MAX_ANSWER_TOKENS = int(os.getenv("FAIR_BASELINE_MAX_ANSWER_TOKENS", "128"))
+GRAPHRAG_CHUNK_SIZE = int(os.getenv("GRAPHRAG_CHUNK_SIZE", "300"))
+GRAPHRAG_CHUNK_OVERLAP = int(os.getenv("GRAPHRAG_CHUNK_OVERLAP", "0"))
 
 # Pure GraphRAG local-search tuning used in thesis experiments.
 # These stay within GraphRAG's own retrieval path; they do not introduce a RAG fallback.

@@ -114,14 +114,57 @@ def active_model_api_key() -> str:
 
 def local_server_health() -> dict[str, Any] | None:
     try:
+        from urllib.parse import urlparse
+        parsed = urlparse(cfg.LOCAL_LLM_BASE_URL)
+        base_root = f"{parsed.scheme}://{parsed.netloc}/"
+    except Exception:
+        base_root = f"http://{cfg.LOCAL_SERVER_HOST}:{cfg.LOCAL_SERVER_PORT}/"
+
+    # 1. Check custom HF local server health endpoint on the target host
+    try:
         response = requests.get(
-            f"http://{cfg.LOCAL_SERVER_HOST}:{cfg.LOCAL_SERVER_PORT}/health",
+            base_root.rstrip("/") + "/health",
             timeout=5,
         )
-        response.raise_for_status()
-        return response.json()
+        if response.status_code == 200:
+            return response.json()
     except Exception:
-        return None
+        pass
+
+    # 2. Check Ollama root endpoint on the target host
+    try:
+        response = requests.get(
+            base_root,
+            timeout=5,
+        )
+        if response.status_code == 200 and "Ollama" in response.text:
+            return {
+                "status": "ok",
+                "generation_model": cfg.LOCAL_GENERATION_MODEL,
+                "embedding_model": cfg.LOCAL_EMBEDDING_MODEL,
+                "device": "external_ollama",
+            }
+    except Exception:
+        pass
+
+    # 3. Check standard /v1/models endpoint using LOCAL_LLM_BASE_URL
+    try:
+        url = cfg.LOCAL_LLM_BASE_URL.rstrip("/") + "/models"
+        headers = {}
+        if cfg.LOCAL_LLM_API_KEY:
+            headers["Authorization"] = f"Bearer {cfg.LOCAL_LLM_API_KEY}"
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            return {
+                "status": "ok",
+                "generation_model": cfg.LOCAL_GENERATION_MODEL,
+                "embedding_model": cfg.LOCAL_EMBEDDING_MODEL,
+                "device": "external_openai",
+            }
+    except Exception:
+        pass
+
+    return None
 
 
 def ensure_local_server() -> subprocess.Popen[str] | None:
@@ -288,7 +331,7 @@ def prepare_graphrag_project(records: list[dict], *, split: str, force_reindex: 
     return project_dir
 
 
-def load_graphrag_dataframes(project_dir: Path, query_method: str) -> tuple[object, dict[str, object]]:
+async def load_graphrag_dataframes(project_dir: Path, query_method: str) -> tuple[object, dict[str, object]]:
     config = load_config(root_dir=project_dir)
     storage_obj = create_storage(config.output_storage)
     table_provider = create_table_provider(config.table_provider, storage=storage_obj)
@@ -302,18 +345,18 @@ def load_graphrag_dataframes(project_dir: Path, query_method: str) -> tuple[obje
 
     dataframes: dict[str, object] = {}
     for name in required:
-        dataframes[name] = asyncio.run(getattr(reader, name)())
+        dataframes[name] = await getattr(reader, name)()
 
     for name in optional:
-        if asyncio.run(table_provider.has(name)):
-            dataframes[name] = asyncio.run(getattr(reader, name)())
+        if await table_provider.has(name):
+            dataframes[name] = await getattr(reader, name)()
         else:
             dataframes[name] = None
     return config, dataframes
 
 
-def build_graphrag_search_engine(project_dir: Path, query_method: str):
-    config, dataframes = load_graphrag_dataframes(project_dir, query_method)
+async def build_graphrag_search_engine(project_dir: Path, query_method: str):
+    config, dataframes = await load_graphrag_dataframes(project_dir, query_method)
 
     if query_method == "basic":
         embedding_store = get_embedding_store(config.vector_store, "text_unit_text")
@@ -419,8 +462,8 @@ def build_shared_text_unit_index(project_dir: Path, *, split: str, force_reindex
     return index
 
 
-def search_graphrag(engine, question: str) -> SearchResult:
-    return asyncio.run(engine.search(question))
+async def search_graphrag(engine, question: str) -> SearchResult:
+    return await engine.search(question)
 
 
 def serialize_graphrag_contexts(search_result: SearchResult) -> list[dict[str, Any]]:
@@ -484,7 +527,7 @@ def normalize_graphrag_response(response: Any) -> str:
     return str(response).strip()
 
 
-def run_standard_rag(
+async def run_standard_rag(
     records: list[dict],
     *,
     project_dir: Path,
@@ -504,30 +547,41 @@ def run_standard_rag(
             for row in json.load(f):
                 existing[row["question_id"]] = row
 
-    results = []
-    total = len(records)
-    for idx, record in enumerate(records, start=1):
+    results_dict = {}
+    # Prefill existing results
+    for record in records:
         qid = record["question_id"]
         if qid in existing:
-            results.append(existing[qid])
-            continue
+            results_dict[qid] = existing[qid]
 
-        started = time.perf_counter()
-        retrieved = index.search(record["question"], top_k=min(top_k, index.size))
-        try:
-            answer = generate_baseline_answer(
-                record["question"],
-                retrieved,
-                max_context_chars=max_context_chars,
-                max_answer_tokens=max_answer_tokens,
-            )
-            error = None
-        except Exception as exc:
-            answer = f"ERROR: {exc}"
-            error = str(exc)
-        latency = time.perf_counter() - started
-        results.append(
-            {
+    to_run = [r for r in records if r["question_id"] not in results_dict]
+    total_to_run = len(to_run)
+
+    if total_to_run > 0:
+        sem = asyncio.Semaphore(8)
+        completed_count = 0
+
+        async def worker(record: dict) -> dict:
+            nonlocal completed_count
+            qid = record["question_id"]
+            async with sem:
+                started = time.perf_counter()
+                retrieved = index.search(record["question"], top_k=min(top_k, index.size))
+                try:
+                    answer = await asyncio.to_thread(
+                        generate_baseline_answer,
+                        record["question"],
+                        retrieved,
+                        max_context_chars=max_context_chars,
+                        max_answer_tokens=max_answer_tokens,
+                    )
+                    error = None
+                except Exception as exc:
+                    answer = f"ERROR: {exc}"
+                    error = str(exc)
+                latency = time.perf_counter() - started
+
+            res = {
                 "question_id": qid,
                 "question": record["question"],
                 "gold_answer": record["answer"],
@@ -555,16 +609,22 @@ def run_standard_rag(
                 "total_tokens": None,
                 "error": error,
             }
-        )
-        if idx % 25 == 0 or idx == total:
-            print(f"[Shared-Unit RAG] Answered {idx}/{total} questions")
-            output_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+            results_dict[qid] = res
+            completed_count += 1
+            if completed_count % 25 == 0 or completed_count == total_to_run:
+                print(f"[Shared-Unit RAG] Answered {completed_count}/{total_to_run} new questions (total: {len(results_dict)}/{len(records)})")
+                ordered_results = [results_dict[r["question_id"]] for r in records if r["question_id"] in results_dict]
+                output_path.write_text(json.dumps(ordered_results, indent=2, ensure_ascii=False), encoding="utf-8")
+            return res
 
-    output_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
-    return results
+        await asyncio.gather(*(worker(r) for r in to_run))
+
+    ordered_results = [results_dict[r["question_id"]] for r in records if r["question_id"] in results_dict]
+    output_path.write_text(json.dumps(ordered_results, indent=2, ensure_ascii=False), encoding="utf-8")
+    return ordered_results
 
 
-def run_full_graphrag(
+async def run_full_graphrag(
     records: list[dict],
     *,
     project_dir: Path,
@@ -573,7 +633,7 @@ def run_full_graphrag(
     query_method: str,
 ) -> list[dict]:
     output_path = cfg.OUTPUTS_DIR / f"hybridqa_{split}_fair_full_graphrag_{query_method}_results.json"
-    search_engine = build_graphrag_search_engine(project_dir, query_method)
+    search_engine = await build_graphrag_search_engine(project_dir, query_method)
 
     existing = {}
     if output_path.exists() and not force_query:
@@ -581,34 +641,43 @@ def run_full_graphrag(
             for row in json.load(f):
                 existing[row["question_id"]] = row
 
-    results = []
-    total = len(records)
-    for idx, record in enumerate(records, start=1):
+    results_dict = {}
+    # Prefill existing results
+    for record in records:
         qid = record["question_id"]
         if qid in existing:
-            results.append(existing[qid])
-            continue
+            results_dict[qid] = existing[qid]
 
-        try:
-            search_result = search_graphrag(search_engine, record["question"])
-            answer = normalize_graphrag_response(search_result.response)
-            retrieved_contexts = serialize_graphrag_contexts(search_result)
-            latency = search_result.completion_time
-            prompt_tokens = search_result.prompt_tokens
-            output_tokens = search_result.output_tokens
-            total_tokens = (prompt_tokens or 0) + (output_tokens or 0)
-            error = None
-        except Exception as exc:
-            answer = f"ERROR: {exc}"
-            retrieved_contexts = []
-            latency = None
-            prompt_tokens = None
-            output_tokens = None
-            total_tokens = None
-            error = str(exc)
+    to_run = [r for r in records if r["question_id"] not in results_dict]
+    total_to_run = len(to_run)
 
-        results.append(
-            {
+    if total_to_run > 0:
+        sem = asyncio.Semaphore(8)
+        completed_count = 0
+
+        async def worker(record: dict) -> dict:
+            nonlocal completed_count
+            qid = record["question_id"]
+            async with sem:
+                try:
+                    search_result = await search_graphrag(search_engine, record["question"])
+                    answer = normalize_graphrag_response(search_result.response)
+                    retrieved_contexts = serialize_graphrag_contexts(search_result)
+                    latency = search_result.completion_time
+                    prompt_tokens = search_result.prompt_tokens
+                    output_tokens = search_result.output_tokens
+                    total_tokens = (prompt_tokens or 0) + (output_tokens or 0)
+                    error = None
+                except Exception as exc:
+                    answer = f"ERROR: {exc}"
+                    retrieved_contexts = []
+                    latency = None
+                    prompt_tokens = None
+                    output_tokens = None
+                    total_tokens = None
+                    error = str(exc)
+
+            res = {
                 "question_id": qid,
                 "question": record["question"],
                 "gold_answer": record["answer"],
@@ -624,13 +693,19 @@ def run_full_graphrag(
                 "total_tokens": total_tokens,
                 "error": error,
             }
-        )
-        if idx % 25 == 0 or idx == total:
-            print(f"[GraphRAG {query_method}] Answered {idx}/{total} questions")
-            output_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+            results_dict[qid] = res
+            completed_count += 1
+            if completed_count % 25 == 0 or completed_count == total_to_run:
+                print(f"[GraphRAG {query_method}] Answered {completed_count}/{total_to_run} new questions (total: {len(results_dict)}/{len(records)})")
+                ordered_results = [results_dict[r["question_id"]] for r in records if r["question_id"] in results_dict]
+                output_path.write_text(json.dumps(ordered_results, indent=2, ensure_ascii=False), encoding="utf-8")
+            return res
 
-    output_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
-    return results
+        await asyncio.gather(*(worker(r) for r in to_run))
+
+    ordered_results = [results_dict[r["question_id"]] for r in records if r["question_id"] in results_dict]
+    output_path.write_text(json.dumps(ordered_results, indent=2, ensure_ascii=False), encoding="utf-8")
+    return ordered_results
 
 
 def build_examples(records: list[dict], split: str) -> list[EvaluationExample]:
@@ -754,24 +829,28 @@ def main() -> None:
         graphrag_rows: list[dict] = []
 
         if "baseline" in systems:
-            baseline_rows = run_standard_rag(
-                records,
-                project_dir=project_dir,
-                split=args.split,
-                force_query=args.force_query,
-                force_reindex=args.force_reindex,
-                top_k=args.baseline_top_k,
-                max_context_chars=args.baseline_max_context_chars,
-                max_answer_tokens=args.baseline_max_answer_tokens,
+            baseline_rows = asyncio.run(
+                run_standard_rag(
+                    records,
+                    project_dir=project_dir,
+                    split=args.split,
+                    force_query=args.force_query,
+                    force_reindex=args.force_reindex,
+                    top_k=args.baseline_top_k,
+                    max_context_chars=args.baseline_max_context_chars,
+                    max_answer_tokens=args.baseline_max_answer_tokens,
+                )
             )
 
         if "graphrag" in systems:
-            graphrag_rows = run_full_graphrag(
-                records,
-                project_dir=project_dir,
-                split=args.split,
-                force_query=args.force_query,
-                query_method=args.graphrag_query_method,
+            graphrag_rows = asyncio.run(
+                run_full_graphrag(
+                    records,
+                    project_dir=project_dir,
+                    split=args.split,
+                    force_query=args.force_query,
+                    query_method=args.graphrag_query_method,
+                )
             )
 
         experiment_dir = evaluate_run(

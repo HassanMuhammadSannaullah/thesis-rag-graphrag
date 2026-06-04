@@ -62,6 +62,7 @@ def _get_openai_client() -> OpenAI:
         _openai_client = OpenAI(
             api_key=cfg.LOCAL_LLM_API_KEY,
             base_url=cfg.LOCAL_LLM_BASE_URL,
+            timeout=60.0,  # Prevent indefinite hangs on network/server issues
         )
     return _openai_client
 
@@ -105,6 +106,7 @@ def _generate_text_local(
     model: str,
     temperature: float,
     max_tokens: int,
+    return_reasoning: bool = False,
 ) -> str:
     client = _get_openai_client()
     response = client.chat.completions.create(
@@ -113,7 +115,13 @@ def _generate_text_local(
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.choices[0].message.content or ""
+    msg = response.choices[0].message
+    content = msg.content or ""
+    if return_reasoning:
+        reasoning = getattr(msg, "reasoning", None) or getattr(msg, "reasoning_content", None) or ""
+        if reasoning:
+            return reasoning.strip()
+    return content
 
 
 def generate_text(
@@ -177,9 +185,20 @@ def _embed_texts_gemini(texts: list[str], model: str) -> list[list[float]]:
 
 
 def _embed_texts_local(texts: list[str], model: str) -> list[list[float]]:
-    client = _get_openai_client()
-    response = client.embeddings.create(model=model, input=texts)
-    return [row.embedding for row in response.data]
+    import requests
+    headers = {}
+    if cfg.LOCAL_LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {cfg.LOCAL_LLM_API_KEY}"
+    url = cfg.LOCAL_LLM_BASE_URL.rstrip("/") + "/embeddings"
+    response = requests.post(
+        url,
+        json={"model": model, "input": texts},
+        headers=headers,
+        timeout=60.0,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return [row["embedding"] for row in data["data"]]
 
 
 def embed_texts(
@@ -245,7 +264,8 @@ def probe_local_backend(
         "This is an LLM connectivity test. Say Hello World",
         active_generation_model,
         temperature=0.1,
-        max_tokens=16,
+        max_tokens=128,
+        return_reasoning=True,
     ).strip()
     if not response:
         raise RuntimeError("Local generation probe returned an empty response.")

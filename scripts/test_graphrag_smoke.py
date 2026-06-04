@@ -237,13 +237,47 @@ def serialize_graphrag_contexts(search_result) -> list[dict]:
 
 def check_server() -> bool:
     try:
+        from urllib.parse import urlparse
+        parsed = urlparse(cfg.LOCAL_LLM_BASE_URL)
+        base_root = f"{parsed.scheme}://{parsed.netloc}/"
+    except Exception:
+        base_root = f"http://{cfg.LOCAL_SERVER_HOST}:{cfg.LOCAL_SERVER_PORT}/"
+
+    # 1. Custom HF local server
+    try:
         resp = requests.get(
-            f"http://{cfg.LOCAL_SERVER_HOST}:{cfg.LOCAL_SERVER_PORT}/health",
+            base_root.rstrip("/") + "/health",
             timeout=5,
         )
-        return resp.status_code == 200
+        if resp.status_code == 200:
+            return True
     except Exception:
-        return False
+        pass
+
+    # 2. Ollama root
+    try:
+        resp = requests.get(
+            base_root,
+            timeout=5,
+        )
+        if resp.status_code == 200 and "Ollama" in resp.text:
+            return True
+    except Exception:
+        pass
+
+    # 3. Standard /v1/models using LOCAL_LLM_BASE_URL
+    try:
+        url = cfg.LOCAL_LLM_BASE_URL.rstrip("/") + "/models"
+        headers = {}
+        if cfg.LOCAL_LLM_API_KEY:
+            headers["Authorization"] = f"Bearer {cfg.LOCAL_LLM_API_KEY}"
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            return True
+    except Exception:
+        pass
+
+    return False
 
 
 def start_server() -> subprocess.Popen:
@@ -389,7 +423,10 @@ def run_smoke_tests() -> bool:
     # ---- STEP 1: Server -------------------------------------------------------
     print("\n[Step 1/11] Local server health check")
     if check_server():
-        print(f"  {PASS} Server already running at {cfg.LOCAL_SERVER_HOST}:{cfg.LOCAL_SERVER_PORT}")
+        from urllib.parse import urlparse
+        parsed = urlparse(cfg.LOCAL_LLM_BASE_URL)
+        server_addr = parsed.netloc or f"{cfg.LOCAL_SERVER_HOST}:{cfg.LOCAL_SERVER_PORT}"
+        print(f"  {PASS} Server already running at {server_addr}")
     else:
         try:
             server_proc = start_server()

@@ -110,8 +110,8 @@ def _settings_yaml(
     completion_api_base = f"\n    api_base: {api_base}" if api_base else ""
     embedding_api_base = f"\n    api_base: {api_base}" if api_base else ""
     return f"""### Auto-generated GraphRAG settings
-# Force sequential LLM calls - local server cannot handle concurrent requests
-concurrent_requests: 1
+# Force parallel LLM calls - local server can handle concurrent requests
+concurrent_requests: 8
 
 completion_models:
   default_completion_model:
@@ -144,8 +144,8 @@ input:
 
 chunking:
   type: tokens
-  size: 4000
-  overlap: 0
+  size: {cfg.GRAPHRAG_CHUNK_SIZE}
+  overlap: {cfg.GRAPHRAG_CHUNK_OVERLAP}
   encoding_model: cl100k_base
 
 input_storage:
