@@ -21,7 +21,7 @@ def build_passage_lookup(records: list[dict]) -> dict[str, dict]:
                     text = text[:1000] + "..."
                 entity_name = link.split("/")[-1].replace("_", " ")
                 lookup[link] = {
-                    "id": f"passage_lookup_{link}",
+                    "id": lp.get("passage_id", f"passage_lookup_{link}"),
                     "type": "linked_passage",
                     "text": f"Entity: {entity_name}\n{text}",
                     "table_id": rec["table_id"],

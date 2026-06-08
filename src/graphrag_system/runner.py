@@ -110,8 +110,9 @@ def _settings_yaml(
     completion_api_base = f"\n    api_base: {api_base}" if api_base else ""
     embedding_api_base = f"\n    api_base: {api_base}" if api_base else ""
     return f"""### Auto-generated GraphRAG settings
-# Force parallel LLM calls - local server can handle concurrent requests
-concurrent_requests: 8
+# Keep local Hugging Face generation conservative; one GPU-backed server
+# serializes generation and can crash if GraphRAG floods it during model load.
+concurrent_requests: {cfg.GRAPHRAG_CONCURRENT_REQUESTS}
 
 completion_models:
   default_completion_model:
@@ -151,6 +152,8 @@ chunking:
 input_storage:
   type: file
   base_dir: "{input_dir}"
+  file_pattern: "*.txt"
+  file_encoding: utf-8
 
 output_storage:
   type: file
@@ -256,6 +259,7 @@ def create_graphrag_config(
     force: bool = False,
 ) -> Path:
     """Create a GraphRAG project configured for the active backend."""
+    project_dir = project_dir.resolve()
     project_dir.mkdir(parents=True, exist_ok=True)
 
     active_model = _active_generation_model(model)
@@ -311,6 +315,7 @@ def create_graphrag_config(
 
 def has_graphrag_index(project_dir: Path) -> bool:
     """Return True when an index output directory already exists."""
+    project_dir = project_dir.resolve()
     output_dir = project_dir / "output"
     required = [
         output_dir / "entities.parquet",
@@ -335,12 +340,24 @@ def run_graphrag_index(
     the Windows pipe-buffer deadlock that occurs when GraphRAG emits large
     volumes of progress text.
     """
+    project_dir = project_dir.resolve()
     print(f"\n  Running GraphRAG indexing in {project_dir} ...")
-    args = [_graphrag_cli(), "index", "-r", str(project_dir), "-m", method]
+    args = [_graphrag_cli(), "index", "-r", str(project_dir), "-m", method, "--skip-validation"]
     if dry_run:
         args.append("--dry-run")
     if not use_cache:
         args.append("--no-cache")
+
+    # Load .env file and add to subprocess environment
+    import os
+    env = os.environ.copy()
+    env_file = project_dir / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                env[key.strip()] = value.strip()
 
     try:
         # stdout/stderr=None: inherited from parent so output streams live to
@@ -352,6 +369,7 @@ def run_graphrag_index(
             stderr=None,
             timeout=timeout_seconds,
             cwd=str(project_dir),
+            env=env,
         )
         return result.returncode == 0
     except FileNotFoundError:
@@ -369,6 +387,7 @@ def run_graphrag_query(
     response_type: str = "Single sentence",
 ) -> str:
     """Run a GraphRAG query using the installed CLI syntax."""
+    project_dir = project_dir.resolve()
     output_dir = project_dir / "output"
     args = [
         _graphrag_cli(),

@@ -71,12 +71,14 @@ SLEEP_BETWEEN_EMB = float(os.getenv("SLEEP_BETWEEN_EMBEDDINGS", "0.5"))
 # Sample sizes
 DEV_SAMPLE_SIZE = int(os.getenv("DEV_SAMPLE_SIZE", "5"))
 EVAL_SAMPLE_SIZE = int(os.getenv("EVAL_SAMPLE_SIZE", "10"))
-MAX_LINKED_PASSAGES = int(os.getenv("MAX_LINKED_PASSAGES", "3"))
-TOP_K_RETRIEVAL = int(os.getenv("TOP_K_RETRIEVAL", "5"))
+# MAX_LINKED_PASSAGES removed - don't pre-filter before semantic search!
+# Use top_k at QUERY TIME, not corpus-building time
+TOP_K_RETRIEVAL = int(os.getenv("TOP_K_RETRIEVAL", "8"))
 FAIR_BASELINE_MAX_CONTEXT_CHARS = int(os.getenv("FAIR_BASELINE_MAX_CONTEXT_CHARS", "16000"))
 FAIR_BASELINE_MAX_ANSWER_TOKENS = int(os.getenv("FAIR_BASELINE_MAX_ANSWER_TOKENS", "128"))
 GRAPHRAG_CHUNK_SIZE = int(os.getenv("GRAPHRAG_CHUNK_SIZE", "300"))
 GRAPHRAG_CHUNK_OVERLAP = int(os.getenv("GRAPHRAG_CHUNK_OVERLAP", "0"))
+GRAPHRAG_CONCURRENT_REQUESTS = int(os.getenv("GRAPHRAG_CONCURRENT_REQUESTS", "1"))
 
 # Pure GraphRAG local-search tuning used in thesis experiments.
 # These stay within GraphRAG's own retrieval path; they do not introduce a RAG fallback.

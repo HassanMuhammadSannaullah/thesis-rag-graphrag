@@ -2,7 +2,11 @@ import unittest
 
 from src.evaluation.answer_metrics import compute_answer_metrics
 from src.evaluation.hallucination_metrics import compute_hallucination_metrics
-from src.evaluation.retrieval_metrics import compute_retrieval_metrics
+from src.evaluation.retrieval_metrics import (
+    compute_answer_support_metrics,
+    compute_id_retrieval_metrics,
+    compute_retrieval_metrics,
+)
 from src.evaluation.schemas import RetrievedContext
 
 
@@ -47,6 +51,41 @@ class EvaluationMetricsTest(unittest.TestCase):
         self.assertEqual(metrics["answer_support_hit_at_1"], 1.0)
         self.assertEqual(metrics["answer_support_hit_at_3"], 1.0)
         self.assertEqual(metrics["answer_support_mrr"], 1.0)
+
+    def test_proxy_evidence_metrics_are_separate_from_strict_metrics(self):
+        contexts = [
+            RetrievedContext(id="row::table_1::0", text="City: Paris | Mayor: Anne Hidalgo", rank=1),
+            RetrievedContext(id="passage::table_1::1", text="Anne Hidalgo has served as mayor of Paris.", rank=2),
+        ]
+        support_metrics, support_warnings = compute_answer_support_metrics(
+            contexts,
+            gold_answers=["Anne Hidalgo"],
+            k_values=[1, 3],
+        )
+        proxy_metrics, proxy_warnings = compute_id_retrieval_metrics(
+            ["row::table_1::0", "passage::table_1::1"],
+            contexts,
+            k_values=[1, 3],
+            prefix="proxy_evidence",
+            missing_warning="missing_proxy_evidence",
+        )
+        strict_metrics, strict_warnings = compute_id_retrieval_metrics(
+            None,
+            contexts,
+            k_values=[1, 3],
+            prefix="evidence",
+            missing_warning="missing_gold_evidence",
+        )
+
+        self.assertEqual(support_warnings, [])
+        self.assertEqual(proxy_warnings, [])
+        self.assertIn("missing_gold_evidence", strict_warnings)
+        self.assertEqual(proxy_metrics["proxy_evidence_coverage"], 1.0)
+        self.assertEqual(proxy_metrics["proxy_evidence_mrr"], 1.0)
+        self.assertEqual(proxy_metrics["proxy_evidence_recall_at_1"], 0.5)
+        self.assertEqual(proxy_metrics["proxy_evidence_recall_at_3"], 1.0)
+        self.assertEqual(support_metrics["answer_support_hit_at_1"], 1.0)
+        self.assertEqual(strict_metrics, {})
 
     def test_hallucination_metrics_detect_unsupported_prediction(self):
         contexts = [

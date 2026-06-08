@@ -10,6 +10,7 @@ from .metric_catalog import (
     report_category_columns,
     report_grounding_columns,
     report_overall_columns,
+    report_proxy_retrieval_columns,
     report_retrieval_columns,
 )
 
@@ -50,8 +51,13 @@ def build_experiment_report(
     category_columns = report_category_columns(top_k)
     grounding_columns = report_grounding_columns(top_k)
     retrieval_columns = report_retrieval_columns(top_k)
+    proxy_retrieval_columns = report_proxy_retrieval_columns(top_k)
     evidence_metric_key = f"evidence_recall_at_{top_k}"
+    proxy_evidence_metric_key = f"proxy_evidence_recall_at_{top_k}"
     evidence_annotated_count = sum(1 for row in metric_rows if row["metrics"].get(evidence_metric_key) is not None)
+    proxy_evidence_annotated_count = sum(
+        1 for row in metric_rows if row["metrics"].get(proxy_evidence_metric_key) is not None
+    )
 
     lines = [
         "# Experiment Report",
@@ -65,7 +71,8 @@ def build_experiment_report(
         f"- Generation model: `{config['generation_model']}`",
         f"- Embedding model: `{config['embedding_model']}`",
         f"- Comparison retrieval cutoff: `top-{top_k}`",
-        f"- Questions with gold evidence annotations: `{evidence_annotated_count}/{len(metric_rows)}`",
+        f"- Questions with strict gold evidence annotations: `{evidence_annotated_count}/{len(metric_rows)}`",
+        f"- Questions with proxy evidence annotations: `{proxy_evidence_annotated_count}/{len(metric_rows)}`",
         "",
         "## Answer Quality",
         "",
@@ -80,17 +87,23 @@ def build_experiment_report(
     lines.extend(
         [
             (
-                "- Evidence-based retrieval metrics require gold evidence annotations and will appear as `null` "
+                "- Strict evidence metrics require official gold evidence ids and will appear as `null` "
                 "when the dataset does not provide them."
             ),
             (
                 "- Answer-support metrics (`Hit@k`, `Ans MRR`, `Gold In Ctx`) are still computed for both systems "
                 "from the retrieved contexts and gold answers."
             ),
+            (
+                "- Proxy evidence metrics use documented answer-anchored alignment heuristics and should be treated "
+                "as approximate support diagnostics rather than official evidence recall."
+            ),
             "",
         ]
     )
     lines.extend(_table(retrieval_columns, overall_rows))
+    lines.extend(["", "## Proxy Evidence Retrieval", ""])
+    lines.extend(_table(proxy_retrieval_columns, overall_rows))
     lines.extend(["", "## Category Breakdown", ""])
     lines.extend(_table(category_columns, by_type_rows or [{"group": "none"}]))
 

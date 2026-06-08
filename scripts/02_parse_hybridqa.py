@@ -21,9 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import jsonlines
 
 from src.config import settings as cfg
-
-
-ZIP_PREFIX = "WikiTables-WithLinks-master"
+from src.data_pipeline.hybridqa_parser import ZIP_PREFIX, build_hybridqa_record, load_json_from_zip
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,65 +39,6 @@ def parse_args() -> argparse.Namespace:
         help="How many parsed records to save into the sample file for each split.",
     )
     return parser.parse_args()
-
-
-def load_json_from_zip(zf: zipfile.ZipFile, path_in_zip: str):
-    try:
-        with zf.open(path_in_zip) as f:
-            return json.load(f)
-    except KeyError:
-        return None
-
-
-def parse_table(table_json: dict) -> dict:
-    headers = [cell[0] for cell in table_json.get("header", [])]
-    rows = []
-    all_links = set()
-    for row_data in table_json.get("data", []):
-        row = {}
-        row_links = []
-        for i, cell in enumerate(row_data):
-            col_name = headers[i] if i < len(headers) else f"col_{i}"
-            text = cell[0] if isinstance(cell, list) else str(cell)
-            links = cell[1] if isinstance(cell, list) and len(cell) > 1 else []
-            row[col_name] = text
-            row_links.extend(links)
-            all_links.update(links)
-        row["_links"] = row_links
-        rows.append(row)
-
-    return {
-        "title": table_json.get("title", ""),
-        "section_title": table_json.get("section_title", ""),
-        "section_text": table_json.get("section_text", ""),
-        "intro": table_json.get("intro", ""),
-        "headers": headers,
-        "rows": rows,
-        "num_rows": len(rows),
-        "all_links": sorted(all_links),
-    }
-
-
-def get_linked_passages(all_links: list, passages_json: dict, max_passages: int) -> list[dict]:
-    if not passages_json:
-        return []
-    entity_links = []
-    generic_links = []
-    for link in all_links:
-        name = link.split("/")[-1]
-        if any(name.startswith(str(y)) for y in range(1800, 2100)):
-            generic_links.append(link)
-        else:
-            entity_links.append(link)
-    ordered = entity_links + generic_links
-
-    result = []
-    for link in ordered[:max_passages]:
-        text = passages_json.get(link, "")
-        if text:
-            result.append({"link": link, "text": text})
-    return result
-
 
 def parse_split(split: str, zf: zipfile.ZipFile, sample_size: int) -> None:
     input_path = cfg.RAW_DIR / f"{split}.json"
@@ -122,21 +61,13 @@ def parse_split(split: str, zf: zipfile.ZipFile, sample_size: int) -> None:
             continue
 
         passages_json = load_json_from_zip(zf, request_path) or {}
-        table_parsed = parse_table(table_json)
-        linked_passages = get_linked_passages(
-            table_parsed["all_links"], passages_json, cfg.MAX_LINKED_PASSAGES * 10
-        )
         parsed.append(
-            {
-                "question_id": q["question_id"],
-                "question": q["question"],
-                "answer": q["answer-text"],
-                "table_id": table_id,
-                "table": table_parsed,
-                "linked_passages": linked_passages,
-                "num_linked_passages": len(linked_passages),
-                "split": split,
-            }
+            build_hybridqa_record(
+                question_payload=q,
+                table_json=table_json,
+                passages_json=passages_json,
+                split=split,
+            )
         )
 
         if (i + 1) % 500 == 0:

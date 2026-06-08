@@ -34,7 +34,7 @@ def build_table_summary(record: dict) -> dict:
         text += f"\nIntro: {table['intro'][:300]}"
 
     return {
-        "id": f"summary_{record['table_id']}",
+        "id": f"summary::{record['table_id']}",
         "type": "table_summary",
         "text": text,
         "table_id": record["table_id"],
@@ -45,6 +45,10 @@ def build_table_summary(record: dict) -> dict:
 def build_table_rows(record: dict) -> list[dict]:
     """Create one retrieval unit per table row."""
     table = record["table"]
+    row_id_by_index = {
+        row_meta["row_index"]: row_meta["row_id"]
+        for row_meta in table.get("row_metadata", [])
+    }
     units = []
     for i, row in enumerate(table["rows"]):
         # Format: "Column: value" pairs (skip internal _links field)
@@ -55,7 +59,7 @@ def build_table_rows(record: dict) -> list[dict]:
         )
         row_links = row.get("_links", [])
         units.append({
-            "id": f"row_{record['table_id']}_{i}",
+            "id": row_id_by_index.get(i, f"row::{record['table_id']}::{i}"),
             "type": "table_row",
             "text": text,
             "table_id": record["table_id"],
@@ -66,23 +70,23 @@ def build_table_rows(record: dict) -> list[dict]:
     return units
 
 
-def build_linked_passages(record: dict, max_passages: int = 30) -> list[dict]:
+def build_linked_passages(record: dict, max_passages: int = None) -> list[dict]:
     """Create one retrieval unit per linked passage."""
     units = []
-    for j, lp in enumerate(record["linked_passages"][:max_passages]):
+    passages = record["linked_passages"] if max_passages is None else record["linked_passages"][:max_passages]
+    for j, lp in enumerate(passages):
         link = lp["link"]
         passage_text = lp["text"]
         if not passage_text.strip():
             continue
-        # Truncate very long passages
-        if len(passage_text) > 1000:
-            passage_text = passage_text[:1000] + "..."
+        # Don't truncate - let the model's context limit handle it
+        # Truncating here loses information before semantic search even happens
 
         entity_name = link.split("/")[-1].replace("_", " ")
         text = f"Entity: {entity_name}\n{passage_text}"
 
         units.append({
-            "id": f"passage_{record['table_id']}_{j}",
+            "id": lp.get("passage_id", f"passage::{record['table_id']}::{j}"),
             "type": "linked_passage",
             "text": text,
             "table_id": record["table_id"],
@@ -92,7 +96,7 @@ def build_linked_passages(record: dict, max_passages: int = 30) -> list[dict]:
     return units
 
 
-def build_corpus_for_record(record: dict, max_passages: int = 30) -> list[dict]:
+def build_corpus_for_record(record: dict, max_passages: int = None) -> list[dict]:
     """Build all retrieval units for a single HybridQA record."""
     units = []
     units.append(build_table_summary(record))
@@ -101,7 +105,7 @@ def build_corpus_for_record(record: dict, max_passages: int = 30) -> list[dict]:
     return units
 
 
-def build_corpus(records: list[dict], max_passages: int = 30) -> list[dict]:
+def build_corpus(records: list[dict], max_passages: int = None) -> list[dict]:
     """Build the full corpus from a list of parsed records."""
     corpus = []
     for rec in records:

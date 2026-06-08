@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.baseline.vector_index import LocalVectorIndex
 from src.config.model_registry import build_local_model_registry_snapshot
 from src.config import settings as cfg
+from src.data_pipeline.hybridqa_evidence import attach_proxy_evidence
 from src.evaluation.evaluator import Evaluator
 from src.evaluation.schemas import EvaluationExample, RetrievedContext, SystemPrediction
 from src.graphrag_system.corpus_prep import hybridqa_record_to_text, hybridqa_to_graphrag_docs
@@ -230,7 +231,7 @@ def load_hybridqa_records(split: str, question_limit: int | None = None) -> list
     records: list[dict] = []
     with jsonlines.open(str(path)) as reader:
         for record in reader:
-            records.append(record)
+            records.append(attach_proxy_evidence(record))
             if question_limit is not None and len(records) >= question_limit:
                 break
     return records
@@ -714,12 +715,19 @@ def build_examples(records: list[dict], split: str) -> list[EvaluationExample]:
             question_id=record["question_id"],
             question=record["question"],
             gold_answer=record["answer"],
-            gold_evidence=None,
+            gold_evidence=record.get("gold_evidence"),
+            proxy_evidence=record.get("proxy_evidence"),
+            evidence_label_mode=(record.get("evidence_alignment") or {}).get("label_mode"),
             question_type="hybridqa",
             operation_type="table_plus_text",
             difficulty=None,
             answer_type=None,
-            metadata={"source_dataset": "hybridqa", "split": split, "table_id": record["table_id"]},
+            metadata={
+                "source_dataset": "hybridqa",
+                "split": split,
+                "table_id": record["table_id"],
+                "evidence_alignment": record.get("evidence_alignment"),
+            },
         )
         for record in records
     ]

@@ -21,9 +21,10 @@ from .ragas_support import (
     load_ragas_runtime,
 )
 from .reporting import build_experiment_report
-from .retrieval_metrics import compute_retrieval_metrics
+from .retrieval_metrics import compute_answer_support_metrics, compute_id_retrieval_metrics
 from .schemas import EvaluationExample, MetricResult, SystemPrediction
 from .statistics import summarize_statistical_report
+from src.utils.runtime import detect_hardware_snapshot, detect_runtime_environment
 
 
 class Evaluator:
@@ -70,6 +71,8 @@ class Evaluator:
             return None
 
     def config_dict(self) -> dict[str, Any]:
+        runtime_environment = detect_runtime_environment()
+        hardware_snapshot = detect_hardware_snapshot(disk_path=cfg.PROJECT_ROOT)
         if self.evaluation_framework == "ragas":
             metric_config = {
                 "framework": "ragas",
@@ -100,6 +103,8 @@ class Evaluator:
             "query_mode": self.query_mode,
             "git_commit_hash": self._git_commit(),
             "command": self.command,
+            "runtime_environment": runtime_environment,
+            "hardware_snapshot": hardware_snapshot,
             "run_metadata": self.run_metadata,
             "metric_config": metric_config,
         }
@@ -125,13 +130,28 @@ class Evaluator:
             answer_type=example.answer_type,
         )
         retrieval_k_values = comparison_k_values(cfg.TOP_K_RETRIEVAL)
-        retrieval_metrics, retrieval_warnings = compute_retrieval_metrics(
-            example.gold_evidence,
+        answer_support_metrics, answer_support_warnings = compute_answer_support_metrics(
             prediction.retrieved_contexts,
             gold_answers=example.all_gold_answers(),
             k_values=retrieval_k_values,
         )
+        strict_retrieval_metrics, retrieval_warnings = compute_id_retrieval_metrics(
+            example.gold_evidence,
+            prediction.retrieved_contexts,
+            k_values=retrieval_k_values,
+            prefix="evidence",
+            missing_warning="missing_gold_evidence",
+        )
+        proxy_retrieval_metrics, proxy_retrieval_warnings = compute_id_retrieval_metrics(
+            example.proxy_evidence,
+            prediction.retrieved_contexts,
+            k_values=retrieval_k_values,
+            prefix="proxy_evidence",
+            missing_warning="missing_proxy_evidence",
+        )
+        warnings.extend(answer_support_warnings)
         warnings.extend(retrieval_warnings)
+        warnings.extend(proxy_retrieval_warnings)
         grounding_metrics = compute_hallucination_metrics(
             predicted_answer=prediction.predicted_answer or "",
             gold_answers=example.all_gold_answers(),
@@ -144,7 +164,9 @@ class Evaluator:
         recall_key = f"evidence_recall_at_{cfg.TOP_K_RETRIEVAL}"
         metrics = {
             **answer_metrics,
-            **retrieval_metrics,
+            **answer_support_metrics,
+            **strict_retrieval_metrics,
+            **proxy_retrieval_metrics,
             **grounding_metrics,
             # Compatibility fields expected by report/statistics code paths.
             "answer_correctness": float(answer_metrics.get("normalized_exact_match", 0)),
@@ -156,8 +178,8 @@ class Evaluator:
                 else None
             ),
             "faithfulness": None,
-            "context_precision": retrieval_metrics.get(precision_key),
-            "context_recall": retrieval_metrics.get(recall_key),
+            "context_precision": strict_retrieval_metrics.get(precision_key),
+            "context_recall": strict_retrieval_metrics.get(recall_key),
             "latency_seconds": prediction.latency_seconds,
             "prompt_tokens": prediction.prompt_tokens,
             "output_tokens": prediction.output_tokens,
@@ -189,6 +211,9 @@ class Evaluator:
                     "question_id": example.question_id,
                     "question": example.question,
                     "gold_answer": example.gold_answer,
+                    "gold_evidence": example.gold_evidence,
+                    "proxy_evidence": example.proxy_evidence,
+                    "evidence_label_mode": example.evidence_label_mode,
                     "predicted_answer": prediction.predicted_answer,
                     "system_name": prediction.system_name,
                     "dataset_name": self.dataset_name,
@@ -316,6 +341,9 @@ class Evaluator:
                 "question_id": result.question_id,
                 "question": prediction_row["question"],
                 "gold_answer": prediction_row["gold_answer"],
+                "gold_evidence": prediction_row["gold_evidence"],
+                "proxy_evidence": prediction_row["proxy_evidence"],
+                "evidence_label_mode": prediction_row["evidence_label_mode"],
                 "predicted_answer": prediction_row["predicted_answer"],
                 "question_type": result.metadata.get("question_type"),
                 "operation_type": result.metadata.get("operation_type"),

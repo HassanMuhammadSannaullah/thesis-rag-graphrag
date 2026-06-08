@@ -34,9 +34,8 @@ def generate_answer(question: str, evidence_units: list[dict]) -> dict:
 
     evidence_text = "\n\n".join(evidence_parts)
 
-    # Truncate if too long (stay within context limits)
-    if len(evidence_text) > 6000:
-        evidence_text = evidence_text[:6000] + "\n... (truncated)"
+    # Don't truncate here - let context packing handle it properly
+    # Arbitrary truncation can cut off the answer!
 
     prompt = ANSWER_PROMPT.format(evidence=evidence_text, question=question)
     answer = generate_text(prompt, max_tokens=256)

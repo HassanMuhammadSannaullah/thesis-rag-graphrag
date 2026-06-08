@@ -6,6 +6,7 @@ import math
 import os
 import sys
 import time
+import traceback
 from threading import Lock
 from pathlib import Path
 
@@ -37,6 +38,8 @@ _embedding_model = None
 _embedding_model_name = None
 _device = None
 _log_path = None
+_generation_load_lock = Lock()
+_embedding_load_lock = Lock()
 
 
 class ChatMessage(BaseModel):
@@ -78,69 +81,87 @@ def _use_device_map() -> bool:
 def _load_generation_model(model_name: str | None = None):
     global _generation_model, _generation_tokenizer, _generation_model_name, _device
     model_name = model_name or cfg.LOCAL_GENERATION_MODEL
-    if _generation_model is None or _generation_tokenizer is None or _generation_model_name != model_name:
-        _device = _resolve_device()
-        print(f"Loading generation model: {model_name} on {_device}")
-        if _generation_model is not None and not _use_device_map():
-            try:
-                _generation_model.to("cpu")
-            except Exception:
-                pass
-        _generation_model = None
-        _generation_tokenizer = None
-        _generation_tokenizer = AutoTokenizer.from_pretrained(
-            model_name,
-            cache_dir=str(cfg.LOCAL_MODELS_DIR),
-            trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
-        )
-        if _generation_tokenizer.pad_token is None:
-            _generation_tokenizer.pad_token = _generation_tokenizer.eos_token
-        model_kwargs = {
-            "torch_dtype": _dtype_for_device(_device),
-            "low_cpu_mem_usage": True,
-            "trust_remote_code": cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
-            "cache_dir": str(cfg.LOCAL_MODELS_DIR),
-        }
-        if _use_device_map():
-            model_kwargs["device_map"] = cfg.LOCAL_MODEL_DEVICE_MAP
+    if _generation_model is not None and _generation_tokenizer is not None and _generation_model_name == model_name:
+        return
+    with _generation_load_lock:
+        if _generation_model is not None and _generation_tokenizer is not None and _generation_model_name == model_name:
+            return
+        _load_generation_model_unlocked(model_name)
 
-        _generation_model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            **model_kwargs,
-        )
-        if not _use_device_map():
-            _generation_model.to(_device)
-        _generation_model.eval()
-        _generation_model_name = model_name
+
+def _load_generation_model_unlocked(model_name: str) -> None:
+    global _generation_model, _generation_tokenizer, _generation_model_name, _device
+    _device = _resolve_device()
+    print(f"Loading generation model: {model_name} on {_device}")
+    if _generation_model is not None and not _use_device_map():
+        try:
+            _generation_model.to("cpu")
+        except Exception:
+            pass
+    _generation_model = None
+    _generation_tokenizer = None
+    _generation_tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        cache_dir=str(cfg.LOCAL_MODELS_DIR),
+        trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
+    )
+    if _generation_tokenizer.pad_token is None:
+        _generation_tokenizer.pad_token = _generation_tokenizer.eos_token
+    model_kwargs = {
+        "torch_dtype": _dtype_for_device(_device),
+        "low_cpu_mem_usage": True,
+        "trust_remote_code": cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
+        "cache_dir": str(cfg.LOCAL_MODELS_DIR),
+    }
+    if _use_device_map():
+        model_kwargs["device_map"] = cfg.LOCAL_MODEL_DEVICE_MAP
+
+    _generation_model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        **model_kwargs,
+    )
+    if not _use_device_map():
+        _generation_model.to(_device)
+    _generation_model.eval()
+    _generation_model_name = model_name
 
 
 def _load_embedding_model(model_name: str | None = None):
     global _embedding_model, _embedding_tokenizer, _embedding_model_name, _device
     model_name = model_name or cfg.LOCAL_EMBEDDING_MODEL
-    if _embedding_model is None or _embedding_tokenizer is None or _embedding_model_name != model_name:
-        _device = _resolve_device()
-        print(f"Loading embedding model: {model_name} on {_device}")
-        if _embedding_model is not None:
-            try:
-                _embedding_model.to("cpu")
-            except Exception:
-                pass
-        _embedding_model = None
-        _embedding_tokenizer = None
-        _embedding_tokenizer = AutoTokenizer.from_pretrained(
-            model_name,
-            cache_dir=str(cfg.LOCAL_MODELS_DIR),
-            trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
-        )
-        _embedding_model = AutoModel.from_pretrained(
-            model_name,
-            torch_dtype=_dtype_for_device(_device),
-            trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
-            cache_dir=str(cfg.LOCAL_MODELS_DIR),
-        )
-        _embedding_model.to(_device)
-        _embedding_model.eval()
-        _embedding_model_name = model_name
+    if _embedding_model is not None and _embedding_tokenizer is not None and _embedding_model_name == model_name:
+        return
+    with _embedding_load_lock:
+        if _embedding_model is not None and _embedding_tokenizer is not None and _embedding_model_name == model_name:
+            return
+        _load_embedding_model_unlocked(model_name)
+
+
+def _load_embedding_model_unlocked(model_name: str) -> None:
+    global _embedding_model, _embedding_tokenizer, _embedding_model_name, _device
+    _device = _resolve_device()
+    print(f"Loading embedding model: {model_name} on {_device}")
+    if _embedding_model is not None:
+        try:
+            _embedding_model.to("cpu")
+        except Exception:
+            pass
+    _embedding_model = None
+    _embedding_tokenizer = None
+    _embedding_tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        cache_dir=str(cfg.LOCAL_MODELS_DIR),
+        trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
+    )
+    _embedding_model = AutoModel.from_pretrained(
+        model_name,
+        torch_dtype=_dtype_for_device(_device),
+        trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
+        cache_dir=str(cfg.LOCAL_MODELS_DIR),
+    )
+    _embedding_model.to(_device)
+    _embedding_model.eval()
+    _embedding_model_name = model_name
 
 
 def _request_log_path() -> Path:
@@ -409,7 +430,21 @@ def health() -> dict:
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
     started_at = time.time()
-    text, input_tokens, completion_tokens, prompt = _generate_chat_text(request)
+    try:
+        text, input_tokens, completion_tokens, prompt = _generate_chat_text(request)
+    except Exception as exc:
+        _log_event(
+            "chat_completion_error",
+            {
+                "model": request.model,
+                "temperature": request.temperature,
+                "requested_max_tokens": request.max_tokens,
+                "error": repr(exc),
+                "traceback": traceback.format_exc()[-4000:],
+                "duration_sec": round(time.time() - started_at, 3),
+            },
+        )
+        raise
 
     _log_event(
         "chat_completion",
@@ -484,25 +519,41 @@ def chat_completions(request: ChatCompletionRequest):
 
 @app.post("/v1/embeddings")
 def embeddings(request: EmbeddingRequest) -> dict:
-    _load_embedding_model(request.model)
     texts = request.input if isinstance(request.input, list) else [request.input]
     query_mode = len(texts) == 1 and _looks_like_query(str(texts[0]))
     formatted = [_format_embedding_text(text, query_mode=query_mode) for text in texts]
     started_at = time.time()
 
-    with _embedding_lock:
-        encoded = _embedding_tokenizer(
-            formatted,
-            padding=True,
-            truncation=True,
-            max_length=512,
-            return_tensors="pt",
+    try:
+        _load_embedding_model(request.model)
+
+        with _embedding_lock:
+            encoded = _embedding_tokenizer(
+                formatted,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt",
+            )
+            encoded = {key: value.to(_embedding_model.device) for key, value in encoded.items()}
+            with torch.no_grad():
+                outputs = _embedding_model(**encoded)
+                pooled = _mean_pool(outputs.last_hidden_state, encoded["attention_mask"])
+                normalized = _normalize(pooled).float().cpu()
+    except Exception as exc:
+        _log_event(
+            "embedding_error",
+            {
+                "model": request.model,
+                "count": len(texts),
+                "query_mode": query_mode,
+                "max_chars": max((len(text) for text in texts), default=0),
+                "error": repr(exc),
+                "traceback": traceback.format_exc()[-4000:],
+                "duration_sec": round(time.time() - started_at, 3),
+            },
         )
-        encoded = {key: value.to(_embedding_model.device) for key, value in encoded.items()}
-        with torch.no_grad():
-            outputs = _embedding_model(**encoded)
-            pooled = _mean_pool(outputs.last_hidden_state, encoded["attention_mask"])
-            normalized = _normalize(pooled).float().cpu()
+        raise
 
     data = []
     total_tokens = 0

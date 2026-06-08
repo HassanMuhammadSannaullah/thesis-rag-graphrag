@@ -27,6 +27,8 @@ def classic_canonical_metrics(top_k: int) -> list[str]:
         "answer_support_mrr",
         "evidence_coverage",
         "mrr",
+        "proxy_evidence_coverage",
+        "proxy_evidence_mrr",
         "answer_correctness",
         "answer_relevancy",
         "semantic_similarity",
@@ -48,6 +50,10 @@ def classic_canonical_metrics(top_k: int) -> list[str]:
                 f"evidence_recall_at_{k}",
                 f"evidence_f1_at_{k}",
                 f"ndcg_at_{k}",
+                f"proxy_evidence_precision_at_{k}",
+                f"proxy_evidence_recall_at_{k}",
+                f"proxy_evidence_f1_at_{k}",
+                f"proxy_evidence_ndcg_at_{k}",
             ]
         )
     return metrics
@@ -66,6 +72,7 @@ def primary_statistical_metrics(top_k: int) -> list[str]:
         f"answer_support_hit_at_{top_k}",
         f"evidence_precision_at_{top_k}",
         f"evidence_recall_at_{top_k}",
+        f"proxy_evidence_recall_at_{top_k}",
         "latency_seconds",
     ]
 
@@ -129,6 +136,21 @@ def report_retrieval_columns(top_k: int) -> list[tuple[str, str]]:
     ]
 
 
+def report_proxy_retrieval_columns(top_k: int) -> list[tuple[str, str]]:
+    return [
+        ("system_name", "System"),
+        ("count", "N"),
+        ("proxy_evidence_coverage", "Proxy Cov."),
+        ("proxy_evidence_mrr", "Proxy MRR"),
+        (f"proxy_evidence_precision_at_{top_k}", f"Proxy P@{top_k}"),
+        (f"proxy_evidence_recall_at_{top_k}", f"Proxy R@{top_k}"),
+        (f"proxy_evidence_f1_at_{top_k}", f"Proxy F1@{top_k}"),
+        (f"proxy_evidence_ndcg_at_{top_k}", f"Proxy nDCG@{top_k}"),
+        ("total_tokens", "Avg Tokens"),
+        ("latency_seconds", "Avg Latency"),
+    ]
+
+
 def comparison_report_columns(top_k: int) -> list[tuple[str, str]]:
     return [
         ("experiment_id", "Experiment"),
@@ -142,5 +164,6 @@ def comparison_report_columns(top_k: int) -> list[tuple[str, str]]:
         ("likely_hallucination", "Halluc."),
         (f"answer_support_hit_at_{top_k}", f"Hit@{top_k}"),
         (f"evidence_recall_at_{top_k}", f"Ev R@{top_k}"),
+        (f"proxy_evidence_recall_at_{top_k}", f"Proxy R@{top_k}"),
         ("latency_seconds", "Latency"),
     ]

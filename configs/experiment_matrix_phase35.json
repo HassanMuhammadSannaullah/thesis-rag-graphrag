@@ -1,0 +1,131 @@
+{
+  "version": "3.0",
+  "description": "Thesis experiment matrix with model variant support (Phase 3.5)",
+  "defaults": {
+    "python": "python",
+    "stop_on_failure": false,
+    "output_root": "results/experiments/model_ablation",
+    "env": {
+      "EVALUATION_FRAMEWORK": "classic",
+      "MODEL_BACKEND": "local_openai"
+    }
+  },
+  "comment": "Model variants are defined in src/config/model_variants.py. Use scripts/16_run_model_comparison.py for automated multi-variant testing.",
+  "model_variants": {
+    "mistral_7b_e5_base": {
+      "LOCAL_GENERATION_MODEL": "mistralai/Mistral-7B-Instruct-v0.3",
+      "LOCAL_GRAPHRAG_INDEX_MODEL": "mistralai/Mistral-7B-Instruct-v0.3",
+      "LOCAL_EMBEDDING_MODEL": "intfloat/e5-base-v2"
+    },
+    "qwen_3b_e5_base": {
+      "LOCAL_GENERATION_MODEL": "Qwen/Qwen2.5-3B-Instruct",
+      "LOCAL_GRAPHRAG_INDEX_MODEL": "Qwen/Qwen2.5-3B-Instruct",
+      "LOCAL_EMBEDDING_MODEL": "intfloat/e5-base-v2"
+    },
+    "qwen_7b_e5_base": {
+      "LOCAL_GENERATION_MODEL": "Qwen/Qwen2.5-7B-Instruct",
+      "LOCAL_GRAPHRAG_INDEX_MODEL": "Qwen/Qwen2.5-7B-Instruct",
+      "LOCAL_EMBEDDING_MODEL": "intfloat/e5-base-v2"
+    },
+    "qwen_14b_e5_base": {
+      "LOCAL_GENERATION_MODEL": "Qwen/Qwen2.5-14B-Instruct",
+      "LOCAL_GRAPHRAG_INDEX_MODEL": "Qwen/Qwen2.5-14B-Instruct",
+      "LOCAL_EMBEDDING_MODEL": "intfloat/e5-base-v2"
+    },
+    "mistral_7b_bge_base": {
+      "LOCAL_GENERATION_MODEL": "mistralai/Mistral-7B-Instruct-v0.3",
+      "LOCAL_GRAPHRAG_INDEX_MODEL": "mistralai/Mistral-7B-Instruct-v0.3",
+      "LOCAL_EMBEDDING_MODEL": "BAAI/bge-base-en-v1.5"
+    }
+  },
+  "experiments": [
+    {
+      "id": "phase35_smoke_test_model_switching",
+      "enabled": true,
+      "script": "scripts/test_strong_baseline.py",
+      "model_variant": "qwen_3b_e5_base",
+      "args": {
+        "split": "dev",
+        "limit": 3,
+        "variant": "strong"
+      },
+      "notes": "Phase 3.5 verification: Quick smoke test  with Qwen 3B to verify model switching works"
+    },
+    {
+      "id": "phase35_model_ablation_smoke",
+      "enabled": true,
+      "script": "scripts/16_run_model_comparison.py",
+      "args": {
+        "split": "dev",
+        "limit": 10,
+        "variants": "smoke",
+        "baseline-variant": "strong",
+        "top-k": 8
+      },
+      "notes": "Phase 3.5 smoke test: Compare 2 models on 10 questions to verify model comparison runner works"
+    },
+    {
+      "id": "phase65_model_ablation_minimum",
+      "enabled": false,
+      "script": "scripts/16_run_model_comparison.py",
+      "args": {
+        "split": "dev",
+        "limit": 50,
+        "variants": "minimum",
+        "baseline-variant": "strong",
+        "top-k": 8
+      },
+      "notes": "Phase 6.5: Minimum model ablation (3 LLMs, 2 embeddings) on 50 questions for thesis defense"
+    },
+    {
+      "id": "phase65_model_ablation_extended",
+      "enabled": false,
+      "script": "scripts/16_run_model_comparison.py",
+      "args": {
+        "split": "dev",
+        "limit": 100,
+        "variants": "extended",
+        "baseline-variant": "strong",
+        "top-k": 8
+      },
+      "notes": "Phase 6.5: Extended model ablation (7 variants) on 100 questions for excellence"
+    },
+    {
+      "id": "phase65_model_ablation_custom",
+      "enabled": false,
+      "script": "scripts/16_run_model_comparison.py",
+      "args": {
+        "split": "dev",
+        "limit": 50,
+        "variant-names": "mistral_7b_e5_base,qwen_14b_e5_base,mistral_7b_bge_base",
+        "baseline-variant": "strong",
+        "top-k": 8
+      },
+      "notes": "Custom model selection: Specify exact variants to compare"
+    },
+    {
+      "id": "legacy_hybridqa_20_questions",
+      "enabled": false,
+      "script": "scripts/11_run_hybridqa_proper_compare.py",
+      "model_variant": "mistral_7b_e5_base",
+      "args": {
+        "split": "dev",
+        "systems": "baseline,graphrag",
+        "question-limit": 20,
+        "graphrag-query-method": "local",
+        "baseline-top-k": 8,
+        "baseline-max-context-chars": 16000,
+        "baseline-max-answer-tokens": 1024,
+        "force-query": true,
+        "force-reindex": true
+      },
+      "notes": "Legacy experiment format with explicit model_variant field"
+    }
+  ],
+  "usage_examples": {
+    "list_variants": "python scripts/16_run_model_comparison.py --list-variants",
+    "smoke_test": "python scripts/16_run_model_comparison.py --split dev --limit 10 --variants smoke",
+    "minimum_ablation": "python scripts/16_run_model_comparison.py --split dev --limit 50 --variants minimum",
+    "custom_variants": "python scripts/16_run_model_comparison.py --split dev --limit 50 --variant-names mistral_7b_e5_base,qwen_14b_e5_base"
+  }
+}

@@ -35,6 +35,8 @@ class EvaluationExample:
     question: str
     gold_answer: str | list[str]
     gold_evidence: list[str] | None = None
+    proxy_evidence: list[str] | None = None
+    evidence_label_mode: str | None = None
     question_type: str | None = None
     operation_type: str | None = None
     difficulty: str | None = None
@@ -50,6 +52,11 @@ class EvaluationExample:
             question=str(data["question"]),
             gold_answer=gold_answer,
             gold_evidence=data.get("gold_evidence") or data.get("evidence_refs"),
+            proxy_evidence=data.get("proxy_evidence") or data.get("proxy_evidence_refs"),
+            evidence_label_mode=(
+                data.get("evidence_label_mode")
+                or (data.get("evidence_alignment") or {}).get("label_mode")
+            ),
             question_type=data.get("question_type"),
             operation_type=data.get("operation_type"),
             difficulty=data.get("difficulty"),

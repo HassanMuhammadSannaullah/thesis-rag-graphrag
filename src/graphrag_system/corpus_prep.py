@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 
-def hybridqa_record_to_text(record: dict, max_passages_per_record: int = 10) -> str:
+def hybridqa_record_to_text(record: dict, max_passages_per_record: int = None) -> str:
     """Render a parsed HybridQA record as a single source document."""
     table = record["table"]
     parts = []
@@ -34,11 +34,11 @@ def hybridqa_record_to_text(record: dict, max_passages_per_record: int = 10) -> 
 
     if rec := record.get("linked_passages"):
         parts.append("\n## Related Entities and Context")
-        for lp in rec[:max_passages_per_record]:
+        passages = rec if max_passages_per_record is None else rec[:max_passages_per_record]
+        for lp in passages:
             entity_name = lp["link"].split("/")[-1].replace("_", " ")
             text = lp["text"]
-            if len(text) > 800:
-                text = text[:800] + "..."
+            # Don't truncate - respect full passage content for proper entity extraction
             # Add explicit relationship context
             parts.append(f"\n### {entity_name}")
             parts.append(f"This is the Wikipedia article for {entity_name}. {text}")
@@ -47,7 +47,7 @@ def hybridqa_record_to_text(record: dict, max_passages_per_record: int = 10) -> 
 
 
 def hybridqa_to_graphrag_docs(records: list[dict], output_dir: Path,
-                               max_passages_per_record: int = 10):
+                               max_passages_per_record: int = None):
     """Convert HybridQA parsed records into text documents for GraphRAG."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
