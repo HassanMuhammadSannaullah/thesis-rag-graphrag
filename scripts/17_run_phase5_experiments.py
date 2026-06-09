@@ -338,19 +338,11 @@ def run_family_a_experiments(
             verbose=True,
         )
         if not success:
-            print("❌ GraphRAG indexing failed! Check logs for details.")
-            log_path = graphrag_workspace / "results" / "experiments" / "phase5" / "both_dev_20260607_192911" / "family_a" / "family_a_graphrag_workspace" / "hybrid" / "logs" / "indexing-engine.log"
-            if log_path.exists():
-                print(f"   Log file: {log_path}")
-            print("   Skipping GraphRAG queries.")
-            return {}
+            raise RuntimeError(f"GraphRAG indexing failed for workspace: {graphrag_workspace}")
         
         # Verify index was created
         if not has_graphrag_index(graphrag_workspace):
-            print("❌ GraphRAG index files not found after indexing!")
-            print("   Expected files: entities.parquet, relationships.parquet, communities.parquet, text_units.parquet")
-            print("   Skipping GraphRAG queries.")
-            return {}
+            raise RuntimeError(f"GraphRAG index files missing after indexing: {graphrag_workspace}")
     else:
         print(f"✓ GraphRAG index already exists")
     
@@ -595,15 +587,11 @@ def run_family_b_experiments(
             verbose=True,
         )
         if not success:
-            print("❌ GraphRAG indexing failed! Check logs for details.")
-            print("   Skipping GraphRAG queries.")
-            return {}
+            raise RuntimeError(f"GraphRAG indexing failed for workspace: {graphrag_workspace}")
         
         # Verify index was created
         if not has_graphrag_index(graphrag_workspace):
-            print("❌ GraphRAG index files not found after indexing!")
-            print("   Skipping GraphRAG queries.")
-            return {}
+            raise RuntimeError(f"GraphRAG index files missing after indexing: {graphrag_workspace}")
     else:
         print(f"✓ GraphRAG index already exists")
     

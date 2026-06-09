@@ -79,6 +79,8 @@ FAIR_BASELINE_MAX_ANSWER_TOKENS = int(os.getenv("FAIR_BASELINE_MAX_ANSWER_TOKENS
 GRAPHRAG_CHUNK_SIZE = int(os.getenv("GRAPHRAG_CHUNK_SIZE", "300"))
 GRAPHRAG_CHUNK_OVERLAP = int(os.getenv("GRAPHRAG_CHUNK_OVERLAP", "0"))
 GRAPHRAG_CONCURRENT_REQUESTS = int(os.getenv("GRAPHRAG_CONCURRENT_REQUESTS", "1"))
+GRAPHRAG_INDEX_TIMEOUT_SECONDS = int(os.getenv("GRAPHRAG_INDEX_TIMEOUT_SECONDS", "21600"))
+GRAPHRAG_QUERY_TIMEOUT_SECONDS = int(os.getenv("GRAPHRAG_QUERY_TIMEOUT_SECONDS", "900"))
 
 # Pure GraphRAG local-search tuning used in thesis experiments.
 # These stay within GraphRAG's own retrieval path; they do not introduce a RAG fallback.

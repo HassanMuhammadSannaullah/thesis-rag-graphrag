@@ -332,7 +332,7 @@ def run_graphrag_index(
     dry_run: bool = False,
     method: str = "standard",
     use_cache: bool = True,
-    timeout_seconds: int = 1800,
+    timeout_seconds: int | None = None,
 ) -> bool:
     """Run GraphRAG indexing for the configured project.
 
@@ -341,6 +341,7 @@ def run_graphrag_index(
     volumes of progress text.
     """
     project_dir = project_dir.resolve()
+    timeout_seconds = timeout_seconds or cfg.GRAPHRAG_INDEX_TIMEOUT_SECONDS
     print(f"\n  Running GraphRAG indexing in {project_dir} ...")
     args = [_graphrag_cli(), "index", "-r", str(project_dir), "-m", method, "--skip-validation"]
     if dry_run:
@@ -408,7 +409,7 @@ def run_graphrag_query(
             args,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=cfg.GRAPHRAG_QUERY_TIMEOUT_SECONDS,
             cwd=str(project_dir),
         )
         if result.returncode == 0:

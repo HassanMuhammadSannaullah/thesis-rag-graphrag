@@ -64,14 +64,16 @@ def run_graphrag_batch_queries(
             
             # Check for errors
             if response.startswith("ERROR:"):
-                print(f"  ⚠ Query {question_id} failed: {response}")
-                predicted_answer = ""
+                raise RuntimeError(f"GraphRAG query {question_id} failed: {response}")
             else:
+                if not response.strip():
+                    raise RuntimeError(f"GraphRAG query {question_id} returned an empty response.")
                 predicted_answer = response
             
         except Exception as e:
-            print(f"  ⚠ Query {question_id} exception: {e}")
-            predicted_answer = ""
+            raise RuntimeError(
+                f"GraphRAG query failed for question_id={question_id!r}: {e}"
+            ) from e
         
         # Create SystemPrediction
         # Note: GraphRAG CLI doesn't expose retrieved context directly,
