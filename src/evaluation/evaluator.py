@@ -105,6 +105,12 @@ class Evaluator:
             "command": self.command,
             "runtime_environment": runtime_environment,
             "hardware_snapshot": hardware_snapshot,
+            "parallelism": {
+                "embedding_concurrent_requests": cfg.EMBEDDING_CONCURRENT_REQUESTS,
+                "retrieval_concurrent_requests": cfg.RETRIEVAL_CONCURRENT_REQUESTS,
+                "evaluation_concurrent_requests": cfg.EVALUATION_CONCURRENT_REQUESTS,
+                "graphrag_concurrent_requests": cfg.GRAPHRAG_CONCURRENT_REQUESTS,
+            },
             "run_metadata": self.run_metadata,
             "metric_config": metric_config,
         }
@@ -265,7 +271,7 @@ class Evaluator:
                 timeout=600,
                 max_retries=2,
                 max_wait=30,
-                max_workers=1,
+                max_workers=cfg.EVALUATION_CONCURRENT_REQUESTS,
             )
             ragas_dataset = self._ragas_runtime.EvaluationDataset(samples=ragas_samples)
             ragas_result = self._ragas_runtime.evaluate(
@@ -280,7 +286,7 @@ class Evaluator:
                 run_config=ragas_run_config,
                 raise_exceptions=False,
                 show_progress=False,
-                batch_size=1,
+                batch_size=cfg.EVALUATION_CONCURRENT_REQUESTS,
             )
             ragas_rows = ragas_result.to_pandas().to_dict(orient="records")
 

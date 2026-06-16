@@ -35,6 +35,12 @@ You answer questions using only the data tables provided.
 """
 
 
+EMBEDDING_VECTOR_SIZES = {
+    "intfloat/e5-base-v2": 768,
+}
+DEFAULT_GRAPHRAG_VECTOR_SIZE = 3072
+
+
 def _graphrag_cli() -> str:
     return resolve_graphrag_cli()
 
@@ -91,6 +97,13 @@ def _active_embedding_model(model: str | None = None) -> str:
     return cfg.EMBEDDING_MODEL
 
 
+def _embedding_vector_size(model: str) -> int:
+    configured = cfg.LOCAL_EMBEDDING_DIMENSION if cfg.MODEL_BACKEND == "local_openai" else cfg.EMBEDDING_DIMENSION
+    if configured > 0:
+        return configured
+    return EMBEDDING_VECTOR_SIZES.get(model, DEFAULT_GRAPHRAG_VECTOR_SIZE)
+
+
 def _active_api_base(api_base: str | None = None) -> str:
     if cfg.MODEL_BACKEND == "local_openai":
         return cfg.LOCAL_LLM_BASE_URL
@@ -105,10 +118,12 @@ def _settings_yaml(
     api_base: str,
     api_key_env_var: str,
     input_dir: str = "input",
+    extract_graph_max_gleanings: int = 0,
 ) -> str:
     """Build a GraphRAG settings.yaml compatible with the installed 3.x CLI."""
     completion_api_base = f"\n    api_base: {api_base}" if api_base else ""
     embedding_api_base = f"\n    api_base: {api_base}" if api_base else ""
+    vector_size = _embedding_vector_size(embedding_model)
     return f"""### Auto-generated GraphRAG settings
 # Keep local Hugging Face generation conservative; one GPU-backed server
 # serializes generation and can crash if GraphRAG floods it during model load.
@@ -172,15 +187,19 @@ cache:
 vector_store:
   type: lancedb
   db_uri: output\\lancedb
+  vector_size: {vector_size}
 
 embed_text:
   embedding_model_id: default_embedding_model
+  # GraphRAG/LiteLLM can hand batched local OpenAI embeddings to LanceDB as a
+  # nested batch-shaped vector on this local shim. Keep local indexing stable.
+  batch_size: 1
 
 extract_graph:
   completion_model_id: graph_index_completion_model
   prompt: "prompts/extract_graph.txt"
   entity_types: [organization, person, geo, event]
-  max_gleanings: 0
+  max_gleanings: {extract_graph_max_gleanings}
 
 summarize_descriptions:
   completion_model_id: graph_index_completion_model
@@ -257,6 +276,7 @@ def create_graphrag_config(
     embedding_model: str | None = None,
     api_base: str | None = None,
     force: bool = False,
+    extract_graph_max_gleanings: int = 0,
 ) -> Path:
     """Create a GraphRAG project configured for the active backend."""
     project_dir = project_dir.resolve()
@@ -300,6 +320,7 @@ def create_graphrag_config(
             api_base=active_api_base,
             api_key_env_var=api_key_env_var,
             input_dir=input_dir.name,
+            extract_graph_max_gleanings=extract_graph_max_gleanings,
         ),
         encoding="utf-8",
     )
@@ -317,13 +338,37 @@ def has_graphrag_index(project_dir: Path) -> bool:
     """Return True when an index output directory already exists."""
     project_dir = project_dir.resolve()
     output_dir = project_dir / "output"
+    settings_path = project_dir / "settings.yaml"
     required = [
         output_dir / "entities.parquet",
         output_dir / "relationships.parquet",
         output_dir / "communities.parquet",
+        output_dir / "community_reports.parquet",
         output_dir / "text_units.parquet",
+        output_dir / "lancedb" / "entity_description.lance",
     ]
-    return all(path.exists() for path in required)
+    if not all(path.exists() for path in required):
+        return False
+
+    try:
+        from graphrag.config.load_config import load_config
+        from graphrag.utils.api import get_embedding_store
+
+        config = load_config(root_dir=project_dir)
+        expected_size = int(config.vector_store.index_schema["entity_description"].vector_size)
+        embedding_store = get_embedding_store(config.vector_store, "entity_description")
+        embedding_store.connect()
+        table = getattr(embedding_store, "document_collection", None)
+        if table is None:
+            return False
+        if int(table.count_rows()) <= 0:
+            return False
+        vector_field = getattr(embedding_store, "vector_field", "vector")
+        field = table.schema.field(vector_field)
+        list_size = getattr(field.type, "list_size", None)
+        return list_size == expected_size
+    except Exception:
+        return False
 
 
 def run_graphrag_index(

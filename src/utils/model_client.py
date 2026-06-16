@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 from pathlib import Path
+from threading import Lock
 
 from openai import OpenAI
 
@@ -19,7 +20,9 @@ except ImportError:  # pragma: no cover
 
 
 _gemini_client = None
-_openai_client = None
+_openai_clients: dict[str, OpenAI] = {}
+_openai_url_index = 0
+_openai_url_lock = Lock()
 
 
 def _cache_path(prefix: str, key: str) -> Path:
@@ -56,15 +59,32 @@ def _get_gemini_client():
     return _gemini_client
 
 
-def _get_openai_client() -> OpenAI:
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = OpenAI(
-            api_key=cfg.LOCAL_LLM_API_KEY,
-            base_url=cfg.LOCAL_LLM_BASE_URL,
-            timeout=60.0,  # Prevent indefinite hangs on network/server issues
-        )
-    return _openai_client
+def _local_llm_base_urls() -> list[str]:
+    urls = list(getattr(cfg, "LOCAL_LLM_BASE_URLS", []) or [cfg.LOCAL_LLM_BASE_URL])
+    return [url.rstrip("/") for url in urls if str(url).strip()] or [cfg.LOCAL_LLM_BASE_URL.rstrip("/")]
+
+
+def _next_local_llm_base_url() -> str:
+    global _openai_url_index
+    urls = _local_llm_base_urls()
+    if len(urls) == 1:
+        return urls[0]
+    with _openai_url_lock:
+        url = urls[_openai_url_index % len(urls)]
+        _openai_url_index += 1
+        return url
+
+
+def _get_openai_client(base_url: str | None = None) -> OpenAI:
+    url = (base_url or _next_local_llm_base_url()).rstrip("/")
+    with _openai_url_lock:
+        if url not in _openai_clients:
+            _openai_clients[url] = OpenAI(
+                api_key=cfg.LOCAL_LLM_API_KEY,
+                base_url=url,
+                timeout=60.0,  # Prevent indefinite hangs on network/server issues
+            )
+        return _openai_clients[url]
 
 
 def _generate_text_gemini(
@@ -189,7 +209,7 @@ def _embed_texts_local(texts: list[str], model: str) -> list[list[float]]:
     headers = {}
     if cfg.LOCAL_LLM_API_KEY:
         headers["Authorization"] = f"Bearer {cfg.LOCAL_LLM_API_KEY}"
-    url = cfg.LOCAL_LLM_BASE_URL.rstrip("/") + "/embeddings"
+    url = _next_local_llm_base_url() + "/embeddings"
     response = requests.post(
         url,
         json={"model": model, "input": texts},

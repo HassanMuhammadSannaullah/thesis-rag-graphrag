@@ -132,9 +132,15 @@ def build_experiment_report(
             1 for row in metric_rows if "missing_retrieved_contexts" in row.get("warnings", [])
         ),
         "parsing_errors": sum(1 for row in metric_rows if row.get("errors")),
+        "system_errors": sum(1 for row in metric_rows if row.get("error")),
     }
     lines.extend(["", "## Failures And Warnings", ""])
     lines.extend([f"- {key}: {value}" for key, value in failures.items()])
+    error_examples = [row for row in metric_rows if row.get("error")][:3]
+    if error_examples:
+        lines.extend(["", "### Error Examples", ""])
+        for row in error_examples:
+            lines.append(f"- `{row.get('question_id')}` {row.get('error')}")
 
     def _examples(predicate) -> list[dict[str, Any]]:
         return [row for row in metric_rows if predicate(row)][:3]
@@ -175,6 +181,14 @@ def build_comparison_report(rows: list[dict[str, Any]]) -> str:
         )
     )
     if rows:
+        failed_rows = [row for row in rows if row.get("failure_count")]
+        if failed_rows:
+            lines.extend(["", "## Failed Runs", ""])
+            for row in failed_rows:
+                lines.append(
+                    f"- `{row.get('experiment_id')}` / `{row.get('system_name')}`: "
+                    f"{row.get('failure_count')} failed prediction(s)"
+                )
         best_exact_match = max(rows, key=lambda row: _metric_or_default(row, "normalized_exact_match", -1.0))
         best_grounding = max(rows, key=lambda row: _metric_or_default(row, "gold_in_context", -1.0))
         lowest_hallucination = min(rows, key=lambda row: _metric_or_default(row, "likely_hallucination", 10**9))

@@ -1,6 +1,7 @@
 """
 Minimal OpenAI-compatible local server backed by Hugging Face models.
 """
+import gc
 import json
 import math
 import os
@@ -74,8 +75,57 @@ def _dtype_for_device(device: str):
     return torch.float32
 
 
+def _cache_dir_arg() -> str:
+    """
+    Keep Hugging Face cache paths relative when the server is launched from the
+    project tree. SentencePiece on Windows can fail on absolute paths containing
+    non-ASCII characters, even when the file exists.
+    """
+    cache_dir = cfg.LOCAL_MODELS_DIR.resolve()
+    cwd = Path.cwd().resolve()
+    project_root = cfg.PROJECT_ROOT.resolve()
+    if cwd == project_root or project_root in cwd.parents:
+        return os.path.relpath(cache_dir, cwd)
+    return str(cache_dir)
+
+
+def _load_tokenizer(model_name: str):
+    tokenizer_kwargs = {
+        "cache_dir": _cache_dir_arg(),
+        "trust_remote_code": cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
+    }
+    try:
+        return AutoTokenizer.from_pretrained(model_name, **tokenizer_kwargs)
+    except OSError as exc:
+        if any(ord(char) > 127 for char in str(cfg.LOCAL_MODELS_DIR)):
+            print(
+                "Fast tokenizer load failed with a non-ASCII cache path; "
+                "retrying with use_fast=False."
+            )
+            return AutoTokenizer.from_pretrained(model_name, use_fast=False, **tokenizer_kwargs)
+        raise exc
+
+
 def _use_device_map() -> bool:
     return cfg.LOCAL_MODEL_DEVICE_MAP.strip().lower() not in {"", "none"}
+
+
+def _release_model(model) -> None:
+    if model is None:
+        return
+    if not _use_device_map():
+        try:
+            model.to("cpu")
+        except Exception:
+            pass
+    del model
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        try:
+            torch.cuda.ipc_collect()
+        except Exception:
+            pass
 
 
 def _load_generation_model(model_name: str | None = None):
@@ -93,25 +143,18 @@ def _load_generation_model_unlocked(model_name: str) -> None:
     global _generation_model, _generation_tokenizer, _generation_model_name, _device
     _device = _resolve_device()
     print(f"Loading generation model: {model_name} on {_device}")
-    if _generation_model is not None and not _use_device_map():
-        try:
-            _generation_model.to("cpu")
-        except Exception:
-            pass
+    _release_model(_generation_model)
     _generation_model = None
     _generation_tokenizer = None
-    _generation_tokenizer = AutoTokenizer.from_pretrained(
-        model_name,
-        cache_dir=str(cfg.LOCAL_MODELS_DIR),
-        trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
-    )
+    _generation_model_name = None
+    _generation_tokenizer = _load_tokenizer(model_name)
     if _generation_tokenizer.pad_token is None:
         _generation_tokenizer.pad_token = _generation_tokenizer.eos_token
     model_kwargs = {
         "torch_dtype": _dtype_for_device(_device),
         "low_cpu_mem_usage": True,
         "trust_remote_code": cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
-        "cache_dir": str(cfg.LOCAL_MODELS_DIR),
+        "cache_dir": _cache_dir_arg(),
     }
     if _use_device_map():
         model_kwargs["device_map"] = cfg.LOCAL_MODEL_DEVICE_MAP
@@ -141,23 +184,16 @@ def _load_embedding_model_unlocked(model_name: str) -> None:
     global _embedding_model, _embedding_tokenizer, _embedding_model_name, _device
     _device = _resolve_device()
     print(f"Loading embedding model: {model_name} on {_device}")
-    if _embedding_model is not None:
-        try:
-            _embedding_model.to("cpu")
-        except Exception:
-            pass
+    _release_model(_embedding_model)
     _embedding_model = None
     _embedding_tokenizer = None
-    _embedding_tokenizer = AutoTokenizer.from_pretrained(
-        model_name,
-        cache_dir=str(cfg.LOCAL_MODELS_DIR),
-        trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
-    )
+    _embedding_model_name = None
+    _embedding_tokenizer = _load_tokenizer(model_name)
     _embedding_model = AutoModel.from_pretrained(
         model_name,
         torch_dtype=_dtype_for_device(_device),
         trust_remote_code=cfg.LOCAL_MODEL_TRUST_REMOTE_CODE,
-        cache_dir=str(cfg.LOCAL_MODELS_DIR),
+        cache_dir=_cache_dir_arg(),
     )
     _embedding_model.to(_device)
     _embedding_model.eval()

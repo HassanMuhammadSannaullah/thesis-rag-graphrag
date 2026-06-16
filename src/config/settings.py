@@ -11,6 +11,13 @@ from dotenv import load_dotenv
 def _env_flag(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).strip().lower() == "true"
 
+
+def _env_int(name: str, default: str = "0") -> int:
+    try:
+        return int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
 # Locate project root (where .env lives)
 _THIS_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = _THIS_DIR.parent.parent
@@ -21,6 +28,13 @@ MODEL_BACKEND = os.getenv("MODEL_BACKEND", "local_openai").lower()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 LOCAL_LLM_API_KEY = os.getenv("LOCAL_LLM_API_KEY", "local-dev-key")
 LOCAL_LLM_BASE_URL = os.getenv("LOCAL_LLM_BASE_URL", "http://127.0.0.1:8001/v1")
+LOCAL_LLM_BASE_URLS = [
+    value.strip()
+    for value in os.getenv("LOCAL_LLM_BASE_URLS", LOCAL_LLM_BASE_URL).split(",")
+    if value.strip()
+]
+if not LOCAL_LLM_BASE_URLS:
+    LOCAL_LLM_BASE_URLS = [LOCAL_LLM_BASE_URL]
 
 # Model names
 GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemini-2.5-flash-lite")
@@ -37,6 +51,8 @@ LOCAL_EMBEDDING_MODEL = os.getenv(
     "LOCAL_EMBEDDING_MODEL",
     "intfloat/e5-base-v2",
 )
+LOCAL_EMBEDDING_DIMENSION = _env_int("LOCAL_EMBEDDING_DIMENSION")
+EMBEDDING_DIMENSION = _env_int("EMBEDDING_DIMENSION")
 EVALUATION_FRAMEWORK = os.getenv("EVALUATION_FRAMEWORK", "classic").strip().lower()
 if EVALUATION_FRAMEWORK not in {"ragas", "classic"}:
     EVALUATION_FRAMEWORK = "classic"
@@ -67,6 +83,12 @@ MAX_RPD = int(os.getenv("MAX_RPD", "500"))
 EMBEDDING_RPM = int(os.getenv("EMBEDDING_RPM", "100"))
 SLEEP_BETWEEN_REQ = float(os.getenv("SLEEP_BETWEEN_REQUESTS", "4.0"))
 SLEEP_BETWEEN_EMB = float(os.getenv("SLEEP_BETWEEN_EMBEDDINGS", "0.5"))
+EMBEDDING_CONCURRENT_REQUESTS = max(1, _env_int("EMBEDDING_CONCURRENT_REQUESTS", "1"))
+RETRIEVAL_CONCURRENT_REQUESTS = max(1, _env_int("RETRIEVAL_CONCURRENT_REQUESTS", "1"))
+EVALUATION_CONCURRENT_REQUESTS = max(1, _env_int("EVALUATION_CONCURRENT_REQUESTS", "1"))
+DEFAULT_EMBEDDING_CONCURRENT_REQUESTS = EMBEDDING_CONCURRENT_REQUESTS
+DEFAULT_RETRIEVAL_CONCURRENT_REQUESTS = RETRIEVAL_CONCURRENT_REQUESTS
+DEFAULT_EVALUATION_CONCURRENT_REQUESTS = EVALUATION_CONCURRENT_REQUESTS
 
 # Sample sizes
 DEV_SAMPLE_SIZE = int(os.getenv("DEV_SAMPLE_SIZE", "5"))
@@ -78,7 +100,8 @@ FAIR_BASELINE_MAX_CONTEXT_CHARS = int(os.getenv("FAIR_BASELINE_MAX_CONTEXT_CHARS
 FAIR_BASELINE_MAX_ANSWER_TOKENS = int(os.getenv("FAIR_BASELINE_MAX_ANSWER_TOKENS", "128"))
 GRAPHRAG_CHUNK_SIZE = int(os.getenv("GRAPHRAG_CHUNK_SIZE", "300"))
 GRAPHRAG_CHUNK_OVERLAP = int(os.getenv("GRAPHRAG_CHUNK_OVERLAP", "0"))
-GRAPHRAG_CONCURRENT_REQUESTS = int(os.getenv("GRAPHRAG_CONCURRENT_REQUESTS", "1"))
+GRAPHRAG_CONCURRENT_REQUESTS = max(1, _env_int("GRAPHRAG_CONCURRENT_REQUESTS", "1"))
+DEFAULT_GRAPHRAG_CONCURRENT_REQUESTS = GRAPHRAG_CONCURRENT_REQUESTS
 GRAPHRAG_INDEX_TIMEOUT_SECONDS = int(os.getenv("GRAPHRAG_INDEX_TIMEOUT_SECONDS", "21600"))
 GRAPHRAG_QUERY_TIMEOUT_SECONDS = int(os.getenv("GRAPHRAG_QUERY_TIMEOUT_SECONDS", "900"))
 

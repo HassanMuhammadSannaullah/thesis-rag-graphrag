@@ -19,13 +19,39 @@ def timestamp_utc() -> str:
 
 def _normalize_row(row: Any) -> Any:
     if is_dataclass(row):
-        return asdict(row)
-    return row
+        return _jsonable(asdict(row))
+    return _jsonable(row)
+
+
+def _jsonable(value: Any) -> Any:
+    if is_dataclass(value):
+        return _jsonable(asdict(value))
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, set):
+        return sorted(_jsonable(item) for item in value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    if hasattr(value, "to_dict"):
+        try:
+            return _jsonable(value.to_dict())
+        except Exception:
+            pass
+    return str(value)
 
 
 def write_json(path: Path, data: Any) -> None:
     ensure_dir(path.parent)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(_jsonable(data), indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def write_jsonl(path: Path, rows: Iterable[Any]) -> None:

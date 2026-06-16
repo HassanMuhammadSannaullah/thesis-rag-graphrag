@@ -1,0 +1,17 @@
+{
+  "dataset_name": "hybridqa_dev",
+  "document_count": 236,
+  "index_unit_count": 236,
+  "question_count": 3,
+  "questions_with_gold_answers": 3,
+  "questions_with_official_gold_evidence_ids": 0,
+  "questions_with_proxy_evidence_ids": 3,
+  "answer_quality_metrics_available": true,
+  "official_id_retrieval_metrics_available": false,
+  "proxy_retrieval_metrics_available": true,
+  "notes": [
+    "Gold answers support answer quality metrics such as exact match and token F1.",
+    "Official evidence IDs are required for official evidence recall/MRR/nDCG.",
+    "Proxy evidence IDs are approximate support diagnostics inferred from answer-containing documents."
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "adapter": "hybridqa",
+  "split": "dev",
+  "limit": 3,
+  "max_passages": null,
+  "record_count": 3,
+  "source": "raw_zip"
+}
