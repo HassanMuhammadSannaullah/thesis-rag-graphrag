@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from huggingface_hub import snapshot_download
 
-from src.benchmark.runner import run_standard_benchmark
+from src.benchmark.runner import LocalModelServerPreflightError, run_standard_benchmark
 from src.config import settings as cfg
 from src.evaluation.experiment_io import write_json
 from src.evaluation.reporting import build_comparison_report
@@ -228,6 +228,9 @@ def main() -> None:
         except Exception as exc:
             results.append({"id": row.get("id"), "status": "failed", "error": repr(exc)})
             print(f"ERROR: experiment {row.get('id')} failed: {exc}", file=sys.stderr)
+            if isinstance(exc, LocalModelServerPreflightError):
+                _write_outputs(output_path=output_path, report_path=report_path, matrix_path=matrix_path, results=results)
+                raise SystemExit(1)
         _write_outputs(output_path=output_path, report_path=report_path, matrix_path=matrix_path, results=results)
     completed = sum(1 for result in results if result.get("status") == "completed")
     failed = sum(1 for result in results if result.get("status") == "failed")

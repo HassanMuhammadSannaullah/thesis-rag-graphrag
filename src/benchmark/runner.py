@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+import requests
 
 from src.benchmark.adapters import build_dataset_adapter
 from src.benchmark.baseline_rag import StandardRagConfig, StandardRagPipeline
@@ -16,6 +20,10 @@ from src.config import settings as cfg
 from src.evaluation.evaluator import Evaluator
 from src.evaluation.experiment_io import ensure_dir, write_json, write_jsonl
 from src.evaluation.schemas import SystemPrediction
+
+
+class LocalModelServerPreflightError(RuntimeError):
+    """Raised when a loopback local OpenAI-compatible server is not ready."""
 
 
 def _apply_model_config(models: dict[str, Any]) -> None:
@@ -51,7 +59,16 @@ def _apply_model_config(models: dict[str, Any]) -> None:
             cfg.LOCAL_LLM_BASE_URLS = [str(value).strip() for value in values if str(value).strip()]
         if cfg.LOCAL_LLM_BASE_URLS:
             cfg.LOCAL_LLM_BASE_URL = cfg.LOCAL_LLM_BASE_URLS[0]
-    if models.get("api_key"):
+    if models.get("api_key_env"):
+        key_name = str(models["api_key_env"])
+        key_value = os.getenv(key_name, "").strip()
+        if not key_value:
+            raise RuntimeError(f"Model config expects API key in environment variable {key_name!r}.")
+        if cfg.MODEL_BACKEND == "local_openai":
+            cfg.LOCAL_LLM_API_KEY = key_value
+        else:
+            cfg.GOOGLE_API_KEY = key_value
+    elif models.get("api_key"):
         if cfg.MODEL_BACKEND == "local_openai":
             cfg.LOCAL_LLM_API_KEY = str(models["api_key"])
         else:
@@ -105,6 +122,56 @@ def _apply_graphrag_config(graphrag: dict[str, Any]) -> None:
         )
 
 
+def _is_loopback_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def _health_url_for_base_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]
+    return f"{base}/health"
+
+
+def _preflight_local_openai_server() -> None:
+    """Fail early when a local OpenAI-compatible server is not reachable."""
+    if cfg.MODEL_BACKEND != "local_openai" or not _is_loopback_url(cfg.LOCAL_LLM_BASE_URL):
+        return
+
+    health_url = _health_url_for_base_url(cfg.LOCAL_LLM_BASE_URL)
+    try:
+        response = requests.get(health_url, timeout=5.0)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        raise LocalModelServerPreflightError(
+            "Local model API is not reachable, so the experiment was stopped before indexing.\n"
+            f"- Checked: {health_url}\n"
+            "- Start the local server in a separate terminal from the repo root:\n"
+            "  .\\.venv\\Scripts\\python.exe scripts\\local_openai_server.py\n"
+            "- Wait until the server is running, then rerun the experiment command.\n"
+            f"Original connection error: {exc}"
+        ) from exc
+
+    device = str(payload.get("device") or "unknown")
+    generation_model = payload.get("generation_model") or cfg.LOCAL_GENERATION_MODEL
+    embedding_model = payload.get("embedding_model") or cfg.LOCAL_EMBEDDING_MODEL
+    if device.lower().startswith("cuda"):
+        print(
+            "Local model API preflight OK: server is running on GPU "
+            f"({device}); generation={generation_model}; embedding={embedding_model}"
+        )
+    else:
+        print(
+            "WARNING: Local model API preflight OK, but the server is not reporting CUDA/GPU. "
+            f"device={device}; generation={generation_model}; embedding={embedding_model}. "
+            "This run may be extremely slow. Check that the server was started with the repo "
+            "venv and CUDA PyTorch."
+        )
+
+
 def _run_queries(questions, query_fn, max_workers: int) -> list[SystemPrediction]:
     if max_workers <= 1 or len(questions) <= 1:
         return [query_fn(question) for question in questions]
@@ -152,6 +219,7 @@ def run_standard_benchmark(config: dict[str, Any]) -> dict[str, Any]:
     _apply_model_config(dict(config.get("models", {})))
     _apply_parallelism_config(dict(config.get("parallelism") or {}))
     _apply_graphrag_config(dict(config.get("graphrag") or {}))
+    _preflight_local_openai_server()
     output_dir = _resolve_output_dir(config)
     ensure_dir(output_dir)
     write_json(output_dir / "benchmark_config.json", config)

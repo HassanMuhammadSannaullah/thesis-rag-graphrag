@@ -1,330 +1,446 @@
 # RAG vs GraphRAG Benchmark Framework
 
-## How To Run The Full Experiment
+This project runs a thesis benchmark comparing:
 
-### Step 1: Start The LLM Server
-
-Open one terminal and start the local OpenAI-compatible server:
-
-```bash
-python scripts/local_openai_server.py
-```
-
-Leave this terminal running. This server file is:
-
-```text
-scripts/local_openai_server.py
-```
-
-If using another person's LLM server instead, do not run this local server.
-Update `base_url` in `configs/hybridqa_full_3_models.json` to point to their
-server.
-
-### Step 2: Run The Experiment Matrix
-
-Open a second terminal and run:
-
-```bash
-python scripts/run_experiment_matrix.py --matrix configs/hybridqa_full_3_models.json
-```
-
-The matrix runner file is:
-
-```text
-scripts/run_experiment_matrix.py
-```
-
-The experiment config is:
-
-```text
-configs/hybridqa_full_3_models.json
-```
-
-### What This Runs
-
-- full HybridQA dev/validation split, not the 3-question smoke test
-- standard hybrid RAG baseline
+- a standard hybrid RAG baseline
 - Microsoft GraphRAG
-- three local open-source 7B-class models:
-  - `mistralai/Mistral-7B-Instruct-v0.3`
-  - `Qwen/Qwen2.5-7B-Instruct`
-  - `HuggingFaceH4/zephyr-7b-beta`
+- three local open-source instruction models
+- the HybridQA dev dataset
 
-On first run, the matrix runner downloads missing HybridQA raw files into
-`data/raw/hybridqa/` and downloads/caches missing Hugging Face models into
-`local_models/`.
-
-The final model/system comparison report is written to:
-
-```text
-results/experiments/hybridqa_full_3_models/model_comparison_report.md
-```
-
-### Configuration
-
-All main experiment settings are in:
+The main full experiment config is:
 
 ```text
 configs/hybridqa_full_3_models.json
 ```
 
-Set the LLM server URL here:
+The safest way to start is: install environment -> start the local model API -> run a tiny smoke test -> run the full experiment.
 
-```json
-"models": {
-  "base_url": "http://YOUR_LLM_SERVER:PORT/v1",
-  "api_key": "local-dev-key"
-}
+## 1. Install The Environment
+
+Open PowerShell in the project root. For example, change into the folder that contains this `README.md` file:
+
+```powershell
+cd "C:\path\to\thesis-rag-graphrag"
 ```
 
-For your local single-GPU machine, keep parallelism at `1`:
+Create or activate the local virtual environment. If `.venv` already exists, activate it:
 
-```json
-"parallelism": {
-  "embedding_concurrent_requests": 1,
-  "retrieval_concurrent_requests": 1,
-  "evaluation_concurrent_requests": 1,
-  "graphrag_concurrent_requests": 1
-}
+```powershell
+.\.venv\Scripts\Activate.ps1
 ```
 
-For an 8-GPU server where the LLM server distributes requests across model
-instances, change the parallelism block to:
+If activation is blocked by PowerShell policy, use the venv Python directly in commands:
 
-```json
-"parallelism": {
-  "llm_concurrent_requests": 8
-}
+```powershell
+.\.venv\Scripts\python.exe --version
 ```
 
-To download/cache first without starting the long benchmark:
+Install GPU PyTorch first, then the project requirements:
 
-```bash
-python scripts/run_experiment_matrix.py --matrix configs/hybridqa_full_3_models.json --download-only
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-gpu-cu128.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-You can list the three configured runs with:
+Verify that the environment sees CUDA:
 
-```bash
-python scripts/run_experiment_matrix.py --matrix configs/hybridqa_full_3_models.json --list
+```powershell
+.\.venv\Scripts\python.exe scripts\check_environment.py
 ```
 
-This repository is now organized around one configurable benchmark pipeline:
-
-- normalize a dataset into canonical documents and questions
-- run a standard hybrid baseline RAG pipeline
-- run Microsoft GraphRAG on the same benchmark input
-- evaluate both systems with the same reporting stack
-- write per-system and comparison reports under `results/experiments/`
-
-The benchmark is driven by JSON config files, so future experiments can change
-dataset, model backend, generation model, embedding model, retrieval settings,
-GraphRAG settings, and output location without changing runner code.
-
-## Parallel LLM Requests
-
-The `parallelism` config section controls client-side request concurrency. It
-does not choose GPUs directly; it decides how many requests this code sends to
-the configured LLM server at the same time. Keep these values at `1` on a
-single-GPU local server. On an external server that distributes requests across
-8 GPUs, set them to `8`.
-
-```json
-"parallelism": {
-  "embedding_concurrent_requests": 1,
-  "retrieval_concurrent_requests": 1,
-  "evaluation_concurrent_requests": 1,
-  "graphrag_concurrent_requests": 1
-}
-```
-
-`embedding_concurrent_requests` fans out baseline document embedding batches.
-`retrieval_concurrent_requests` runs benchmark questions concurrently for
-baseline and GraphRAG. `evaluation_concurrent_requests` is used by RAGAS
-evaluation. `graphrag_concurrent_requests` is written into GraphRAG indexing
-settings for GraphRAG's own LLM calls. You can also set
-`llm_concurrent_requests` as a shorthand when all four should use the same
-number.
-
-For the usual 8-GPU server setup, keep one OpenAI-compatible URL in
-`models.base_url` and let that server distribute the simultaneous requests:
-
-```json
-"models": {
-  "backend": "local_openai",
-  "base_url": "http://their-llm-server:8001/v1"
-},
-"parallelism": {
-  "llm_concurrent_requests": 8
-}
-```
-
-If the model instances are exposed as separate OpenAI-compatible endpoints
-instead of one load-balanced URL, direct baseline generation and embedding calls
-can also use `models.base_urls`:
-
-```json
-"models": {
-  "backend": "local_openai",
-  "base_urls": [
-    "http://gpu-worker-1:8001/v1",
-    "http://gpu-worker-2:8001/v1"
-  ]
-}
-```
-
-GraphRAG indexing/search should use a single `base_url`, so put a load balancer
-or router URL there when using GraphRAG with multiple server-side instances.
-
-## Main Entry Points
-
-## GPU Setup
-
-For NVIDIA GPU runs, install CUDA-enabled PyTorch before the main requirements:
-
-```bash
-pip install -r requirements-gpu-cu128.txt
-pip install -r requirements.txt
-```
-
-Then verify:
-
-```bash
-python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
-```
-
-Do not rely on plain `pip install torch` for GPU; it may install a CPU build.
-
-Check the active benchmark environment:
-
-```bash
-python scripts/check_environment.py
-```
-
-Run one configured benchmark:
-
-```bash
-python scripts/run_benchmark.py --config configs/benchmark.example.json
-```
-
-Run a matrix of benchmark configs:
-
-```bash
-python scripts/run_experiment_matrix.py --matrix configs/benchmark_matrix.example.json
-```
-
-Run the full HybridQA dev/validation model comparison:
-
-```bash
-python scripts/run_experiment_matrix.py --matrix configs/hybridqa_full_3_models.json
-```
-
-On first run this matrix downloads the HybridQA `dev.json` split and
-`WikiTables-WithLinks.zip` into `data/raw/hybridqa/` if they are missing, then
-downloads/caches the configured Hugging Face models into `local_models/`. It
-runs both `standard_hybrid_rag` and `standard_graphrag` for each configured
-model and writes the cross-model comparison to:
+Look for:
 
 ```text
-results/experiments/hybridqa_full_3_models/model_comparison_report.md
+"torch_cuda_available": true
 ```
 
-The full matrix currently compares:
+or:
+
+```text
+"cuda_available": true
+```
+
+If CUDA is false, the local server will run on CPU and the experiment will be extremely slow.
+
+## 2. Start The Local Model API
+
+Open **Terminal 1** and run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\local_openai_server.py
+```
+
+Leave this terminal open. It is the local OpenAI-compatible model server.
+
+The experiment code talks to it at:
+
+```text
+http://127.0.0.1:8001/v1
+```
+
+In another terminal, you can check the server:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8001/health | ConvertTo-Json
+```
+
+You want to see:
+
+```text
+"device": "cuda"
+```
+
+If the device is `cpu`, stop the server, check the venv and CUDA PyTorch installation, then start the server again.
+
+## 3. Run The Local Smoke Test First
+
+Open **Terminal 2** in the project root.
+
+List the local smoke runs:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_full_3_models_smoke_local.json --list
+```
+
+Run only Qwen first:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_full_3_models_smoke_local.json --run-id qwen_2_5_7b_smoke1_local
+```
+
+If that works, run the full 3-model smoke:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_full_3_models_smoke_local.json
+```
+
+The smoke config is intentionally tiny:
+
+```text
+dataset.limit = 1
+dataset.max_passages = 2
+baseline.top_k = 2
+```
+
+It proves the pipeline runs. It does not prove final answer quality.
+
+During local runs, the code now performs a preflight check. If the local server is not running, it stops before indexing and prints a message telling you to run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\local_openai_server.py
+```
+
+If the server reports CUDA, you will see a message like:
+
+```text
+Local model API preflight OK: server is running on GPU (cuda)
+```
+
+## 4. Run The Full Local Experiment
+
+Only run the full experiment after the local smoke test succeeds.
+
+List the full runs:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_full_3_models.json --list
+```
+
+Run the full experiment:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_full_3_models.json
+```
+
+This runs:
 
 - `mistralai/Mistral-7B-Instruct-v0.3`
 - `Qwen/Qwen2.5-7B-Instruct`
 - `HuggingFaceH4/zephyr-7b-beta`
+- baseline hybrid RAG
+- GraphRAG indexing and querying
+- full HybridQA dev with `limit: null`
 
-The config defaults to one request at a time for a single-GPU machine. On a
-server whose LLM endpoint distributes requests across 8 GPUs/model instances,
-set the matrix `parallelism` block to:
+The full output report is:
+
+```text
+results/experiments/hybridqa_full_3_models/model_comparison_report.md
+```
+
+You can also run only one full model:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_full_3_models.json --run-id qwen_2_5_7b_full_hybridqa_dev
+```
+
+## 5. What To Watch During The Full Run
+
+Keep Terminal 1 visible. It shows the local model server activity.
+
+Important signs:
+
+- `Loading generation model: ... on cuda` means the model is loading on GPU.
+- `Loading embedding model: ... on cuda` means embeddings are on GPU.
+- GraphRAG `extract_graph` can be very slow. This is expected because it calls the LLM many times to extract entities and relationships.
+- If the server says CPU, stop and fix CUDA before running the full experiment.
+- If the benchmark stops with a local API preflight error, the server was not reachable. Start Terminal 1 again and rerun.
+
+## 6. Download Data And Models Only
+
+To prepare files without running the benchmark:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_full_3_models.json --download-only
+```
+
+This downloads or checks:
+
+- HybridQA raw files under `data/raw/hybridqa/`
+- Hugging Face models under `local_models/`
+
+## 7. OpenRouter Smoke Test
+
+OpenRouter is optional. Use it when you want to test the API path without running local models.
+
+The OpenRouter smoke config is:
+
+```text
+configs/hybridqa_openrouter_smoke3_models.json
+```
+
+It uses:
+
+- `https://openrouter.ai/api/v1`
+- `OPENROUTER_API_KEY` from your environment
+- `openai/text-embedding-3-small` for embeddings
+
+Set the key in PowerShell:
+
+```powershell
+$env:OPENROUTER_API_KEY="your_openrouter_key_here"
+```
+
+Run one OpenRouter smoke model:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_openrouter_smoke3_models.json --run-id qwen_2_5_7b_smoke1_openrouter
+```
+
+Run all OpenRouter smoke rows:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\hybridqa_openrouter_smoke3_models.json
+```
+
+Do not put the OpenRouter key directly in JSON. The config uses:
 
 ```json
-"parallelism": {
-  "llm_concurrent_requests": 8
+"api_key_env": "OPENROUTER_API_KEY"
+```
+
+GraphRAG may write the resolved key into a generated workspace `.env` file under `results/`, but `results/` is ignored by git.
+
+## 8. Running The Full Experiment With OpenRouter
+
+The full local config can be adapted to OpenRouter by changing the `models` block in a copy of:
+
+```text
+configs/hybridqa_full_3_models.json
+```
+
+Example:
+
+```json
+"models": {
+  "backend": "local_openai",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_env": "OPENROUTER_API_KEY",
+  "auto_download": false,
+  "generation_model": "qwen/qwen-2.5-7b-instruct",
+  "embedding_model": "openai/text-embedding-3-small",
+  "embedding_dimension": 1536,
+  "graphrag_index_model": "qwen/qwen-2.5-7b-instruct"
 }
 ```
 
-To only download/cache the dataset and models before a long run:
+Then change each experiment row to OpenRouter model names. For example:
 
-```bash
-python scripts/run_experiment_matrix.py --matrix configs/hybridqa_full_3_models.json --download-only
+```json
+"models": {
+  "generation_model": "mistralai/mistral-small-3.2-24b-instruct",
+  "graphrag_index_model": "mistralai/mistral-small-3.2-24b-instruct"
+}
 ```
 
-Prepare/inspect canonical dataset files without running any model:
+Important: full GraphRAG on OpenRouter can cost real money because `extract_graph` sends many LLM calls. Use the OpenRouter smoke first.
 
-```bash
-python scripts/prepare_dataset.py --config configs/benchmark.example.json
+## 9. Important Config Knobs
+
+These are the most common settings to change.
+
+### Dataset Size
+
+```json
+"dataset": {
+  "limit": 1,
+  "max_passages": 2
+}
 ```
 
-The local OpenAI-compatible model server helper is still available:
+- `limit`: number of HybridQA questions.
+- `null`: full dev split.
+- `1` or `3`: smoke test.
+- `max_passages`: maximum linked passages per question/table.
+- Smaller values run faster but can remove evidence needed to answer.
 
-```bash
-python scripts/local_openai_server.py
+For a more meaningful local smoke:
+
+```json
+"limit": 3,
+"max_passages": 10
 ```
 
-## Pipeline
+### Retrieval Size
 
-```text
-dataset adapter
-  -> BenchmarkDocument + BenchmarkQuestion
-  -> shared chunking/text-unit construction
-  -> standard_hybrid_rag
-  -> standard_graphrag
-  -> common SystemPrediction schema
-  -> Evaluator reports
-  -> comparison_report.md + comparison_summary.json
+```json
+"baseline": {
+  "top_k": 8,
+  "dense_top_k": 30,
+  "lexical_top_k": 30
+}
 ```
 
-## Supported Dataset Shapes
+- `top_k`: final contexts passed to the answer model.
+- `dense_top_k`: dense retrieval candidates.
+- `lexical_top_k`: BM25 candidates.
+- Larger values improve recall but cost more time.
 
-The adapter layer currently supports:
+For tiny smoke tests, `top_k: 2` is okay. For quality checks, use at least `top_k: 5`.
 
-- HybridQA raw files (`dev.json`/`train.json` plus `WikiTables-WithLinks.zip`)
-  with parsed JSONL fallback
-- generic JSON/JSONL/CSV/TSV/Parquet records containing question, answer, and text fields
-- structured table corpus plus a separate QA file
-- unstructured text/Markdown/HTML directory corpus plus a separate QA file
+### GraphRAG Rebuild
 
-New datasets should be added by writing a small adapter that returns canonical
-`BenchmarkDocument` and `BenchmarkQuestion` objects. Everything after that point
-is shared by baseline RAG and GraphRAG.
+```json
+"graphrag": {
+  "force_rebuild": true
+}
+```
 
-## Standard Baseline RAG
+- `true`: rebuild the GraphRAG index from scratch.
+- `false`: reuse an existing index when possible.
 
-The baseline is intentionally library-backed:
+Use `true` when changing input data, model, embeddings, or GraphRAG settings. Use `false` when rerunning the same workspace to save time.
 
-- dense retrieval uses FAISS
-- lexical retrieval uses `rank-bm25`
-- dense and lexical rankings are combined with reciprocal rank fusion
-- reranking uses `sentence-transformers` CrossEncoder
-- answer generation uses the configured model provider through `src/utils/model_client.py`
+### Parallelism
 
-The pipeline fails fast if required retrieval libraries are missing. It does not
-silently replace FAISS or BM25 with handmade fallback retrieval.
+```json
+"parallelism": {
+  "embedding_concurrent_requests": 1,
+  "retrieval_concurrent_requests": 1,
+  "evaluation_concurrent_requests": 1,
+  "graphrag_concurrent_requests": 1
+}
+```
 
-## GraphRAG
+Keep all values at `1` on a single local GPU.
 
-The GraphRAG path writes canonical benchmark documents into a Microsoft GraphRAG
-workspace, creates GraphRAG config, runs indexing, and queries GraphRAG through
-GraphRAG's Python search engine APIs so returned context text is available to
-the evaluator.
+If using a multi-GPU server or hosted API and you know it can handle concurrency, you can use:
 
-## Outputs
+```json
+"parallelism": {
+  "llm_concurrent_requests": 4
+}
+```
 
-Each benchmark run writes:
+Use higher values carefully. GraphRAG can send many requests.
+
+## 10. Output Files
+
+Each run writes:
 
 - `benchmark_config.json`
 - `canonical_documents.jsonl`
 - `index_units.jsonl`
 - `questions.jsonl`
 - `predictions.jsonl`
-- one evaluation folder per system
+- one folder per system
 - `benchmark_summary.json`
 - `comparison_summary.json`
 - `comparison_report.md`
 
-## Documentation
+For the local smoke, check:
 
-See [docs/standard_benchmark_framework.md](docs/standard_benchmark_framework.md)
-for adapter examples and config guidance.
+```text
+results/experiments/hybridqa_full_3_models_smoke_local/
+```
+
+For the full local run, check:
+
+```text
+results/experiments/hybridqa_full_3_models/
+```
+
+## 11. Common Problems
+
+### The run stops before indexing
+
+The local API preflight failed. Start the local server in Terminal 1:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\local_openai_server.py
+```
+
+Then rerun the experiment in Terminal 2.
+
+### The server reports CPU
+
+The local environment is not using CUDA PyTorch. Reinstall:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-gpu-cu128.txt
+```
+
+Then check:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_environment.py
+```
+
+### Smoke metrics are zero
+
+This can be normal. The smallest smoke uses only 1 question and 2 passages, so it may exclude the evidence passage needed to answer. The smoke proves that the pipeline works; it does not measure final quality.
+
+### GraphRAG `extract_graph` is slow
+
+This is expected. GraphRAG indexing calls the LLM repeatedly to extract entities and relationships from text chunks. Full runs can take a long time on a single laptop GPU.
+
+## 12. Project Entry Points
+
+Run one config:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_benchmark.py --config configs\benchmark.example.json
+```
+
+Run a matrix:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_experiment_matrix.py --matrix configs\benchmark_matrix.example.json
+```
+
+Start the local model API:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\local_openai_server.py
+```
+
+Check the environment:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_environment.py
+```
+
+More framework details are in:
+
+```text
+docs/standard_benchmark_framework.md
+```

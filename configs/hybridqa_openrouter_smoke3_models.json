@@ -1,0 +1,90 @@
+{
+  "output_path": "results/experiments/hybridqa_openrouter_smoke3_models/matrix_summary.json",
+  "report_path": "results/experiments/hybridqa_openrouter_smoke3_models/model_comparison_report.md",
+  "defaults": {
+    "models": {
+      "backend": "local_openai",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "auto_download": false,
+      "generation_model": "qwen/qwen-2.5-7b-instruct",
+      "embedding_model": "openai/text-embedding-3-small",
+      "embedding_dimension": 1536,
+      "graphrag_index_model": "qwen/qwen-2.5-7b-instruct"
+    },
+    "parallelism": {
+      "embedding_concurrent_requests": 1,
+      "retrieval_concurrent_requests": 1,
+      "evaluation_concurrent_requests": 1,
+      "graphrag_concurrent_requests": 1
+    },
+    "dataset": {
+      "type": "hybridqa",
+      "split": "dev",
+      "limit": 1,
+      "max_passages": 2,
+      "prefer_raw": true,
+      "auto_download": false
+    },
+    "systems": [
+      "baseline",
+      "graphrag"
+    ],
+    "chunking": {
+      "strategy": "none",
+      "chunk_size": 900,
+      "chunk_overlap": 120
+    },
+    "baseline": {
+      "top_k": 2,
+      "dense_top_k": 4,
+      "lexical_top_k": 4,
+      "fusion_k": 20,
+      "use_dense": true,
+      "use_bm25": true,
+      "use_reranker": true,
+      "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+      "vector_backend": "faiss",
+      "max_context_chars": 4000,
+      "max_answer_tokens": 32
+    },
+    "graphrag": {
+      "query_method": "local",
+      "response_type": "Single sentence",
+      "force_rebuild": true,
+      "use_chunked_units": true,
+      "index_method": "standard",
+      "extract_graph_max_gleanings": 0,
+      "max_context_tokens": 1500
+    }
+  },
+  "experiments": [
+    {
+      "id": "qwen_2_5_7b_smoke1_openrouter",
+      "enabled": true,
+      "output_dir": "results/experiments/hybridqa_openrouter_smoke3_models/qwen_2_5_7b",
+      "models": {
+        "generation_model": "qwen/qwen-2.5-7b-instruct",
+        "graphrag_index_model": "qwen/qwen-2.5-7b-instruct"
+      }
+    },
+    {
+      "id": "mistral_small_3_2_24b_smoke1_openrouter",
+      "enabled": true,
+      "output_dir": "results/experiments/hybridqa_openrouter_smoke3_models/mistral_small_3_2_24b",
+      "models": {
+        "generation_model": "mistralai/mistral-small-3.2-24b-instruct",
+        "graphrag_index_model": "mistralai/mistral-small-3.2-24b-instruct"
+      }
+    },
+    {
+      "id": "mistral_7b_v0_3_smoke1_openrouter",
+      "enabled": true,
+      "output_dir": "results/experiments/hybridqa_openrouter_smoke3_models/mistral_7b_v0_3",
+      "models": {
+        "generation_model": "mistralai/mistral-7b-instruct-v0.3",
+        "graphrag_index_model": "mistralai/mistral-7b-instruct-v0.3"
+      }
+    }
+  ]
+}
